@@ -7,13 +7,13 @@ import argparse
 
 import pandas as pd
 import numpy as np
-from preprocessing import normalize_keypoint_by_its_bounding_box
+from humiact5_preprocessing import normalize_keypoint_by_its_bounding_box
 
-def estimate_bounding_box(poseKeypoints,
-                          img_width,
-                          img_height,
-                          ratio_x = 0.10,
-                          ratio_y = 0.15):
+def estimate_combined_bounding_box(poseKeypoints,
+                                   img_width,
+                                   img_height,
+                                   ratio_x = 0.10,
+                                   ratio_y = 0.15):
     #
     # estimate bounding box based on poseKeypoints data of an image
     # input:
@@ -66,14 +66,97 @@ def estimate_bounding_box(poseKeypoints,
     else:
         return ()
 
-def draw_bounding_box(datum):
+def estimate_separated_bounding_boxes(poseKeypoints,
+                          img_width,
+                          img_height,
+                          ratio_x,
+                          ratio_y):
+    #
+    # estimate bounding box based on poseKeypoints data of an image
+    # input:
+    #   poseKeypoints - tuple of key points from openpose
+    #   img_width - width of input image
+    #   img_height - height of input image
+    #   ratio_x - percentage of bounding box's width increase
+    #   ratio_y - percentage of bounding box's height increase
+    # output:
+    #   list of bounding boxes estimated
+    #
+
+    # each bounding box - x1,y1,x2,y2
+    #   where (x1,y1) is top-left corner point coordinate
+    #         (x2,y2) is right-bottom corner point coordinate
+    bxs = ()
+
+    # check validity
+    if poseKeypoints.size < 2:
+        return bxs
+
+    num_objs = len(poseKeypoints)
+    MIN_BOX_SIZE = (16,16)
+
+    for i in range(0, num_objs):
+        obj = poseKeypoints[i]
+        Xs = [item for item in obj[:,0] if item > 0]
+        Ys = [item for item in obj[:,1] if item > 0]
+
+        x1 = np.min(Xs)
+        x2 = np.max(Xs)
+        y1 = np.min(Ys)
+        y2 = np.max(Ys)
+
+        delta_width = (x2-x1)*ratio_x/2
+        delta_height = (y2-y1)*ratio_y/2
+
+        # expand more at the top and less at the bottom
+        weight_top = 0.8
+        delta_height_top = delta_height * weight_top
+        delta_height_bottom = delta_height * (1 - weight_top)
+
+        x1_new = (x1 - delta_width) if (x1 - delta_width) > 0 else 0
+        y1_new = (y1 - delta_height_top) if (y1 - delta_height_top) > 0 else 0
+        x2_new = (x2 + delta_width) if (x2 + delta_width) < img_width else img_width
+        y2_new = (y2 + delta_height_bottom) if (y2 + delta_height_bottom) < img_height else img_height
+
+        if (x2_new-x1_new) > MIN_BOX_SIZE[0] and (y2_new-y1_new) > MIN_BOX_SIZE[1]:
+            bx = (int(x1_new), int(y1_new), int(x2_new), int(y2_new)),
+            bxs += bx
+
+    return bxs
+
+def draw_combined_bounding_box(datum):
     #
     # draw bounding box for testing classifier performance
     #
 
     # region estimate merged bounding boxes
     img_height, img_width, _ = datum.cvInputData.shape
-    box = estimate_bounding_box(datum.poseKeypoints,
+    box = estimate_combined_bounding_box(datum.poseKeypoints,
+                                         img_width,
+                                         img_height,
+                                         0.10,
+                                         0.10)
+    # endregion
+
+    # draw bounding boxes on output image
+    bnb_img = datum.cvOutputData
+
+    cv2.rectangle(bnb_img,
+                  (box[0], box[1]),
+                  (box[2], box[3]),
+                  color=(0, 0, 255),
+                  thickness=2)
+
+    return bnb_img
+
+def draw_separated_bounding_boxes(datum):
+    #
+    # draw bounding box for testing classifier performance
+    #
+
+    # region estimate merged bounding boxes
+    img_height, img_width, _ = datum.cvInputData.shape
+    bxs = estimate_separated_bounding_boxes(datum.poseKeypoints,
                                 img_width,
                                 img_height,
                                 0.10,
@@ -81,22 +164,39 @@ def draw_bounding_box(datum):
     # endregion
 
     # draw bounding boxes on output image
-    bnb_img = datum.cvInputData
-
-    cv2.rectangle(bnb_img,
-                  (box[0], box[1]),
-                  (box[2], box[3]),
-                  color=(0, 0, 255),
-                  thickness=3)
+    bnb_img = datum.cvOutputData
+    i = 1
+    for bx in bxs:
+        cv2.rectangle(bnb_img,
+                      (bx[0], bx[1]),
+                      (bx[2], bx[3]),
+                      color=(0, 0, 255),
+                      thickness=2)
+        i = i + 1
 
     return bnb_img
 
+def show_and_save_images_with_drawn_bounding_boxes(datum,image_name, saved_path):
+    # draw bounding boxes on output image
+    bnb_img = draw_separated_bounding_boxes(datum)
+
+    # display image with bounding boxes
+    # show resized size (if exist high resolution images in dataset)
+    # resized_bnb_img = cv2.resize(bnb_img, (960, 540))
+    # cv2.imshow("Merged bounding box is drawn.", resized_bnb_img)
+
+    # show original size
+    cv2.imshow("Image with bounding boxes drawn.", bnb_img)
+    cv2.waitKey(0)
+
+    # save the performance of the merging and elimination algorithm
+    # just enable when checking performance of the algorithm
+    cv2.imwrite(join(saved_path, image_name + "_boxes.png"), bnb_img)
 
 def extract_ROI_and_HOG_feature(datum,
                                 image_name,
                                 roi_and_hog_path ="",
                                 winSize = (64,64),
-                                isDisplayImageWithROIs= False,
                                 isExtractRoiHogBitmap= False):
     #
     # extract regions of interest and appropriate HOG features of an image
@@ -112,32 +212,14 @@ def extract_ROI_and_HOG_feature(datum,
     #   list of HOG features of a bounding box of current image
     #
 
-    # region estimate merged bounding boxes
+    # region Estimate merged bounding boxes for HOG computation
     img_height, img_width, _ = datum.cvOutputData.shape
-    box = estimate_bounding_box(datum.poseKeypoints,
-                                img_width,
-                                img_height,
-                                0.10,
-                                0.15)
+    box = estimate_combined_bounding_box(datum.poseKeypoints,
+                                         img_width,
+                                         img_height,
+                                         0.10,
+                                         0.15)
     #endregion
-
-    #region draw merged bounding boxes
-    if isDisplayImageWithROIs:
-        # draw bounding boxes on output image
-        bnb_img = datum.cvOutputData
-
-        if len(box) != 0:
-            cv2.rectangle(bnb_img,
-                          (box[0], box[1]),
-                          (box[2], box[3]),
-                          color=(0, 0, 255),
-                          thickness=2)
-
-        # display image with bounding boxes
-        resized_bnb_img = cv2.resize(bnb_img, (960, 540))
-        cv2.imshow("Merged bounding box is drawn.", resized_bnb_img)
-        cv2.waitKey(0)
-    # endregion
 
     #region extract hog features
 
@@ -202,11 +284,11 @@ def extract_ROI_and_HOG_feature(datum,
     return hog_desc
     #endregion
 
-def calc_means_stds_of_keypoints_set(set_of_keypoints):
+def calc_means_stds_of_keypoints_set(one_set_of_keypoints):
     # calculate mean and std values of a keypoints set
 
-    Xs = [item for item in set_of_keypoints[:, 0] if item > 0]
-    Ys = [item for item in set_of_keypoints[:, 1] if item > 0]
+    Xs = [item for item in one_set_of_keypoints[:, 0] if item > 0]
+    Ys = [item for item in one_set_of_keypoints[:, 1] if item > 0]
     # mean and std of Xs
     meanX = np.mean(Xs)
     stdX = np.std(Xs)
@@ -230,7 +312,7 @@ def keypoints_sets_merging(poseKeypoints,
     # outputs:
     #   - array of at most 2 merged sets of keypoints
 
-    # print("Bounding box merging module.")
+    # print("Keypoint sets merging module.")
     list_of_sets_of_keypoints_output = list()
 
     # calculate mean and std values of each keypoints set
@@ -329,7 +411,7 @@ def keypoints_sets_merging(poseKeypoints,
     # print ("The list of %d merged sets of keypoints:\n" % len(arr_of_keypoints_output))
     # print(arr_of_keypoints_output)
 
-    return get_two_most_confident_sets(arr_of_keypoints_output)
+    return get_two_sets_with_biggest_variance(arr_of_keypoints_output)
 
 # replace unconfident points by more confident ones in remaining small sets after merging
 def replace_unconfident_points_in_big_set_by_more_confident_small_sets(poseKeypoints,
@@ -414,7 +496,7 @@ def replace_unconfident_points_in_big_set_by_more_confident_small_sets(poseKeypo
     # indexes of sets of keypoints we can remove
     removed_set_points_idxs = [idx for idx in range(0,len(poseKeypoints)) if np.sum(((poseKeypoints[idx][:,0]>0) | (poseKeypoints[idx][:,1]>0)) == True) <= removed_set_points_thresh]
 
-    # union removed sets indexes with replaced sets indexes
+    # union indexes of removed sets with indexes of replaced sets
     combined_set_points_idxs = list(set(removed_set_points_idxs).union(set(replaced_small_set_idxs)))
 
     # rebuild the array of keypoints after removing duplicated small sets
@@ -423,15 +505,15 @@ def replace_unconfident_points_in_big_set_by_more_confident_small_sets(poseKeypo
     return arr_of_keypoints_set_output
 
 #TODO: adjust the function to take variace of a set into account. Prioritize sets with bigger variance.
-def get_two_most_confident_sets(keypoints_arrs):
+def get_two_sets_with_biggest_variance(keypoints_arrs):
     #
-    # This function is to get two most confident sets from the input arrays
-    # In this case, the more non-zero keypoints in a set, the more confident it is
+    # This function is to get two sets with the biggest variance from the input arrays
+    # Note: bigger variance means the skeleton is closer (main actor of the scene)
     #
     # Input:
-    #   -keypoints_arrs - the refined arrays after mergring and eliminating
+    #   -keypoints_arrs - the refined arrays after merging and eliminating (at least 5 non-zero joints)
     # Output:
-    #   -an array with maximum 2 sets of key poinnts (corresponding with two people)
+    #   -an array with maximum 2 sets of key points (corresponding with two main actor of the scene)
     #
 
     n = len(keypoints_arrs)
@@ -439,10 +521,16 @@ def get_two_most_confident_sets(keypoints_arrs):
     if n < 3:
         return keypoints_arrs
 
-    # calculate a tupple ((index1,number_of_non-zero_keypoints),...) from the arrays
+    # calculate a tupple ((index1,variance of the set calculated by F1_score formula),...) from the arrays
     index_value_pairs = ()
     for i in range(n):
-        index_value_pairs += (i, len([idx for idx in range(len(keypoints_arrs[i])) if (keypoints_arrs[i][idx][0] > 0 or keypoints_arrs[i][idx][1] > 0)])),
+        # calculate the std of current set
+        (_, stdXY) = calc_means_stds_of_keypoints_set(keypoints_arrs[i])
+        # std = np.sqrt(stdXY[0]**2 + stdXY[1]**2)
+
+        # calculate scalar std using F1_score formula
+        std_F1 = stdXY[0]*stdXY[1]/(stdXY[0]+stdXY[1])
+        index_value_pairs += (i, std_F1),
 
     # sort this tupple
     sorted_index_value_pairs = sorted(index_value_pairs,key=lambda x:x[1],reverse=True)
@@ -568,11 +656,13 @@ def extract_dataset_features(dataset,
         opWrapper.start()
         # endregion
 
+        # RoI-HOG folder name if generated by the function already in this image folder
+        roi_hog_folder_name = "RoI-HOG"
         # get all training poses as sub-folders of train dataset
-        categories = [f.name for f in os.scandir(join(dir_path, dataset)) if f.is_dir()]
+        categories = [f.name for f in os.scandir(join(dir_path, dataset)) if f.is_dir() and f.name != roi_hog_folder_name]
 
         if len(categories) == 0:
-            parent, category = os.path.split(dataset)
+            parent, category = os.path.split(dataset.rstrip('/\\'))
             dataset = parent
             categories = [category]
 
@@ -590,7 +680,7 @@ def extract_dataset_features(dataset,
             # create ROI and HOG directory
             roi_and_hog_path = ""
             if isWithExtraFeature:
-                roi_and_hog_path = join(cat_path, "RoI-HOG")
+                roi_and_hog_path = join(cat_path, roi_hog_folder_name)
                 if not os.path.exists(roi_and_hog_path):
                     os.mkdir(roi_and_hog_path)
 
@@ -628,14 +718,20 @@ def extract_dataset_features(dataset,
                     # an array to save keypoint feature
                     keyPoint_feats_arrs = []
                     if datum.poseKeypoints.size > 1 and datum.poseKeypoints.ndim == 3:
-                        # region extract keypoints features
+
+                        # ================================================================================= #
+                        # ============== show and save images with drawn bounding boxes =================== #
+                        show_and_save_images_with_drawn_bounding_boxes(datum, image_name, roi_and_hog_path)
+                        # ================================================================================= #
+
+                        # region Extract key-point features
                         keypoints_coordinates = datum.poseKeypoints[:, :, :2]
 
                         # calculate distances and orientations (if exist) between
                         # each every pair of points (each from each set)
                         # NOTE: consider each set corresponding with one person
-                        extracted_dists_orients = \
-                            extract_relative_dist_orient_between_two_sets(keypoints_coordinates)
+                        # extracted_dists_orients = \
+                        #     extract_relative_dist_orient_between_two_sets(keypoints_coordinates)
 
                         # after merging with new keypoints sets, these coordinates are translated to their center and scaled by their box size -> added in keypoints features
                         # translate and scale keypoints by its center and box size,
@@ -645,8 +741,10 @@ def extract_dataset_features(dataset,
                         # add to list of keypoint-only features
                         kp_record_details.append(keyPoint_feats_arrs)
 
+                        # ===================== distances+orientations features ===================== #
                         # save keypoints+distances+orientations features
-                        kp_do_record_details.append(keyPoint_feats_arrs + extracted_dists_orients)
+                        # kp_do_record_details.append(keyPoint_feats_arrs + extracted_dists_orients)
+                        # =========================================================================== #
 
                         # endregion
 
@@ -658,8 +756,7 @@ def extract_dataset_features(dataset,
                                                             image_name,
                                                             roi_and_hog_path,
                                                             winSize= winSize,
-                                                            isDisplayImageWithROIs=False,
-                                                            isExtractRoiHogBitmap=True)
+                                                            isExtractRoiHogBitmap=False)
 
                             # append HOG feature to a combined feature array
                             keyPoint_HOG_feats_arrs = np.append(keyPoint_feats_arrs,
@@ -674,20 +771,20 @@ def extract_dataset_features(dataset,
             if isWithExtraFeature:
                 if len(mixed_record_details) > 0:
                     data1_to_write = pd.DataFrame(kp_record_details)
-                    data2_to_write = pd.DataFrame(kp_do_record_details)
+                    # data2_to_write = pd.DataFrame(kp_do_record_details)
                     data3_to_write = pd.DataFrame(mixed_record_details)
 
                     data1_to_write.to_csv(join(cat_path, category + '_keypoint_feature.csv'))
-                    data2_to_write.to_csv(join(cat_path, category + '_keypoint_do_feature.csv'))
+                    # data2_to_write.to_csv(join(cat_path, category + '_keypoint_do_feature.csv'))
                     data3_to_write.to_csv(join(cat_path, category + '_extra_feature_' +
                                                          str(winSize[0])+'x'+str(winSize[1]) +'.csv'))
             else:
                 if len(kp_record_details) > 0:
                     data1_to_write = pd.DataFrame(kp_record_details)
-                    data2_to_write = pd.DataFrame(kp_do_record_details)
+                    # data2_to_write = pd.DataFrame(kp_do_record_details)
 
                     data1_to_write.to_csv(join(cat_path, category + '_keypoint_feature.csv'))
-                    data2_to_write.to_csv(join(cat_path, category + '_keypoint_do_feature.csv'))
+                    # data2_to_write.to_csv(join(cat_path, category + '_keypoint_do_feature.csv'))
 
     except Exception as e:
         print(e)
@@ -704,7 +801,7 @@ if __name__ == "__main__":
     # extract_dataset_features(dataset_train,
     #                          isWithExtraFeature=True)
 
-    extract_dataset_features(dataset_test,
+    extract_dataset_features("experiments/merging_elimination_test/",
                              isWithExtraFeature=False)
 
     # # test error cases with merging, ROI images

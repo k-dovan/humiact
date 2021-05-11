@@ -13,7 +13,7 @@ from sys import platform
 import argparse
 import time
 
-from preprocessing import get_all_images_recursively
+from humiact5_preprocessing import get_all_images_recursively
 
 def interactively_build_a_list_of_error_samples(sub_dir):
     #
@@ -96,13 +96,16 @@ def interactively_build_a_list_of_error_samples(sub_dir):
 
             if not args[0].no_display:
                 resized_img = cv2.resize(datum.cvOutputData, (960, 540))
-                cv2.imshow("OpenPose 1.6.0 - Tutorial Python API", resized_img)
+                cv2.imshow(imagePath, resized_img)
                 key = cv2.waitKey(0)
                 if key == 27:
                     break
                 elif key == 32:  # SPACE
                     # add to incorrect_keyjoints_samples
                     incorrect_keyjoints_samples.append(imagePath)
+                
+                # close current window
+                cv2.destroyWindow(imagePath)
 
         # save the list of incorrect samples to file
         textfile = open("dataset-humiact5/{}_error_samples.txt".format(sub_dir), "w")
@@ -132,10 +135,10 @@ def remove_error_samples(error_list_file):
     pass
 
 if __name__ == "__main__":
-    interactively_build_a_list_of_error_samples("HHold")
+    # interactively_build_a_list_of_error_samples("XOXO")
 
     # the file of list of error samples
-    error_list_file = "dataset-humiact5/Boxing_error_samples.txt"
+    error_list_file = "dataset-humiact5/XOXO_error_samples.txt"
 
-    # remove_error_samples(error_list_file)
+    remove_error_samples(error_list_file)
     pass

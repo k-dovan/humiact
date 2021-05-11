@@ -1,3 +1,8 @@
+
+# ===================================================== #
+#   OpenPose Library Tutorial 01
+# ===================================================== #
+
 # From Python
 # It requires OpenCV installed for Python
 import sys
@@ -6,7 +11,7 @@ import os
 from sys import platform
 import argparse
 import numpy as np
-from features_extraction import estimate_bounding_box
+from humiact5_features_extraction import estimate_combined_bounding_box
 
 try:
     # Import Openpose (Windows/Ubuntu/OSX)
@@ -68,11 +73,11 @@ try:
 
     # estimate boundinig boxes
     img_height, img_width, _ = datum.cvOutputData.shape
-    bxs = estimate_bounding_box(datum.poseKeypoints,
-                                img_width,
-                                img_height,
-                                0.10,
-                                0.10)
+    bxs = estimate_combined_bounding_box(datum.poseKeypoints,
+                                         img_width,
+                                         img_height,
+                                         0.10,
+                                         0.10)
 
     # draw bounding boxes on output image
     bnb_img = datum.cvOutputData

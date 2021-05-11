@@ -26,12 +26,12 @@ from sklearn import svm, metrics
 from joblib import dump, load
 import pickle
 
-from plot_learning_curve import plot_learning_curve
-from preprocessing import get_all_images_recursively
-from features_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_plot_learning_curve import plot_learning_curve
+from humiact5_preprocessing import get_all_images_recursively
+from humiact5_features_extraction import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
      normalize_keypoint_by_its_bounding_box,\
-     draw_bounding_box
+     draw_combined_bounding_box
 
 #region train and test modules
 def baseline_model(input_dim):
@@ -400,7 +400,7 @@ def visualize_SVM_Classifier(test_images_path):
             datum.poseKeypoints = merged_poseKeypoints
 
             # draw bounding box on test image
-            drawn_img = draw_bounding_box(datum)
+            drawn_img = draw_combined_bounding_box(datum)
             drawn_img = cv2.cvtColor(drawn_img, cv2.COLOR_BGR2RGB)
             images_data[idx] = drawn_img
 

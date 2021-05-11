@@ -18,21 +18,21 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout
 from keras.utils import np_utils
 from keras.optimizers import Adam
+from keras import regularizers
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split, ShuffleSplit
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import ShuffleSplit
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 from sklearn import svm, metrics
 from joblib import dump, load
 import pickle
-
-from plot_learning_curve import plot_learning_curve
-from preprocessing import get_all_images_recursively
-from features_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_preprocessing import get_all_images_recursively
+from humiact5_features_extraction import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
      normalize_keypoint_by_its_bounding_box,\
-     draw_bounding_box, \
-     extract_relative_dist_orient_between_two_sets
+     draw_combined_bounding_box
+from humiact5_plot_learning_curve import plot_learning_curve
 
 #region train and test modules
 def baseline_model(input_dim):
@@ -45,22 +45,25 @@ def baseline_model(input_dim):
     # good 02:
     # good 03:
     model = Sequential()
-    model.add(Dropout(0.2, input_shape=(input_dim,)))
-    model.add(Dense(128, activation="relu"))
-    model.add(Dropout(0.1))
+    # model.add(Dropout(0.3, input_shape=(input_dim,)))
+    model.add(Dense(256, activation="relu",
+                    kernel_regularizer=regularizers.l2(0.1)))
+    # model.add(Dropout(0.3))
     model.add(Dense(6, activation="softmax"))
     opt = Adam(learning_rate=0.0001)
+
+
 
     # compile model
     model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
     return model
 
 # build 1 hidden NN classifier
-def build_and_save_NN_model():
+def build_and_save_NN_model(isPCAon= True):
     # load dataset
     df_ds = pd.DataFrame()
     for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_do_feature.csv"), index_col=0)
+        df = pd.read_csv(join(train_dataset, cat, cat + "_extra_feature_32x32.csv"), index_col=0)
         labels = [cat for i in range(len(df.index))]
         df.insert(df.shape[1], "label", labels)
         df_ds = df_ds.append(df)
@@ -71,8 +74,18 @@ def build_and_save_NN_model():
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
+    # separate keypoint features and HOG features apart
+    X1 = df_ds.iloc[:,:KP_LEN]
+    X2 = df_ds.iloc[:,KP_LEN:-1]
+
     # apply scaler to each type of feature
     trans = StandardScaler()
+    X1 = trans.fit_transform(X1)
+    X2 = trans.fit_transform(X2)
+
+    # merge features after applying standard scaler
+    X = np.concatenate((X1,X2), axis=1)
+    # apply scaling to entire dataset
     X = trans.fit_transform(X)
 
     # apply one-hot coding for label
@@ -87,6 +100,19 @@ def build_and_save_NN_model():
     # for y_train and y_val
     dummy_y_train = np_utils.to_categorical(y_train)
     dummy_y_val = np_utils.to_categorical(y_val)
+
+    if isPCAon:
+        # initialize pca instance
+        pca = PCA(0.95)
+
+        # fit PCA on training set
+        pca.fit(X_train)
+
+        # apply mapping (transform) to both training and test set
+        X_train = pca.transform(X_train)
+        X_val = pca.transform(X_val)
+
+        dump(pca, 'saved_models/NN-PCA-transform.joblib')
 
     num_feats = X_train.shape[1]
     # create baseline model without PCA
@@ -103,8 +129,8 @@ def build_and_save_NN_model():
     y_pred_train = model.predict_classes(X_train)
     y_pred = model.predict_classes(X_val)
 
-    show_confusion_matrix(y_pred_train,y_train,"NN network/ Training set")
-    show_confusion_matrix(y_pred,y_val,"NN network/ Validation set")
+    show_confusion_matrix(y_pred_train, y_train,"NN network/ Training set")
+    show_confusion_matrix(y_pred, y_val,"NN network/ Validation set")
 
     # print last epoch accuracy
     # for training set and validation set
@@ -114,7 +140,10 @@ def build_and_save_NN_model():
     print(history.history['val_accuracy'][len(history.history['val_accuracy'])-1])
 
     # save the model
-    model.save("saved_models/NN-model-with-keyp_do_feat")
+    if isPCAon:
+        model.save("saved_models/NN-model-with-extrafea-PCA-on")
+    else:
+        model.save("saved_models/NN-model-with-extrafea-PCA-off")
 
     # plot loss during training
     pyplot.title('Training / Validation Loss')
@@ -131,11 +160,11 @@ def build_and_save_NN_model():
     pyplot.show()
 
 # build SVM classifier
-def build_and_save_SVM_Classifier():
+def build_and_save_SVM_Classifier(isPCAon= True):
     # load dataset
     df_ds = pd.DataFrame()
     for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_do_feature.csv"), index_col=0)
+        df = pd.read_csv(join(train_dataset, cat, cat + "_extra_feature_32x32.csv"), index_col=0)
         labels = [cat for i in range(len(df.index))]
         df.insert(df.shape[1], "label", labels)
         df_ds = df_ds.append(df)
@@ -146,8 +175,18 @@ def build_and_save_SVM_Classifier():
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
-    # apply scaling to entire dataset
+    # separate keypoint features and HOG features apart
+    X1 = df_ds.iloc[:,:KP_LEN]
+    X2 = df_ds.iloc[:,KP_LEN:-1]
+
+    # apply scaler to each type of feature
     trans = StandardScaler()
+    X1 = trans.fit_transform(X1)
+    X2 = trans.fit_transform(X2)
+
+    # merge features after applying standard scaler
+    X = np.concatenate((X1,X2), axis=1)
+    # apply scaling to entire dataset
     X = trans.fit_transform(X)
 
     # apply one-hot coding for label
@@ -161,7 +200,21 @@ def build_and_save_SVM_Classifier():
 
     # train test split
     # split train and test set
-    X_train, X_val, y_train, y_val = train_test_split(X, encoded_y, test_size=0.33, shuffle=True)
+    X_train, X_val, y_train, y_val = train_test_split(X, encoded_y, test_size=0.10, shuffle=True)
+
+    # apply PCA
+    if isPCAon:
+        # initialize pca instance
+        pca = PCA(0.95)
+
+        # fit PCA on training set
+        pca.fit(X_train)
+
+        # apply mapping (transform) to both training and test set
+        X_train = pca.transform(X_train)
+        X_val = pca.transform(X_val)
+
+        dump(pca, 'saved_models/SVM-PCA-transform.joblib')
 
     # create SVM classifier
     clf = svm.SVC(kernel='rbf')
@@ -174,28 +227,31 @@ def build_and_save_SVM_Classifier():
     clf.fit(X_train,y_train)
 
     # dump classifier to file
-    dump(clf, 'saved_models/SVM-model-with-keyp_do_feat.joblib')
+    if isPCAon:
+        dump(clf,'saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+    else:
+        dump(clf, 'saved_models/SVM-model-with-extrafea-PCA-off.joblib')
 
     # predict the response
     y_pred_train = clf.predict(X_train)
     y_pred = clf.predict(X_val)
 
     # show confusion matrix for mis-classification on training set
-    show_confusion_matrix(y_pred_train, y_train, "SVM/ Training set")
+    show_confusion_matrix(y_pred_train, y_train,"SVM/ Training set")
     # show confusion matrix for mis-classification on validation set
-    show_confusion_matrix(y_pred, y_val, "SVM/ Validation set")
+    show_confusion_matrix(y_pred, y_val,"SVM/ Validation set")
 
     # Model Accuracy: how often is the classifier correct?
     print("Training accuracy:", metrics.accuracy_score(y_train, y_pred_train))
     print("Validation accuracy:", metrics.accuracy_score(y_val, y_pred))
 
-def evaluate_NN_Classifier_On_Test_Set(test_dataset):
+def evaluate_NN_Classifier_On_Test_Set(test_dataset, isPCAon=True):
     #
     # try to predict some input images with/without yoga poses
     #
     pass
 
-def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
+def evaluate_SVM_Classifier_On_Test_Set(train_dataset, isPCAon=True):
     #
     # evaluate the accuracy of the model in test set
     #
@@ -203,7 +259,7 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     # load dataset
     df_ds = pd.DataFrame()
     for cat in categories:
-        df = pd.read_csv(join(test_dataset, cat, cat + "_keypoint_do_feature.csv"), index_col=0)
+        df = pd.read_csv(join(train_dataset, cat, cat + "_extra_feature_32x32.csv"), index_col=0)
         labels = [cat for i in range(len(df.index))]
         df.insert(df.shape[1], "label", labels)
         df_ds = df_ds.append(df)
@@ -212,8 +268,18 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
-    # apply scaling to entire dataset
+    # separate keypoint features and HOG features apart
+    X1 = df_ds.iloc[:, :KP_LEN]
+    X2 = df_ds.iloc[:, KP_LEN:-1]
+
+    # apply scaler to each type of feature
     trans = StandardScaler()
+    X1 = trans.fit_transform(X1)
+    X2 = trans.fit_transform(X2)
+
+    # merge features after applying standard scaler
+    X = np.concatenate((X1, X2), axis=1)
+    # apply scaling to entire dataset
     X = trans.fit_transform(X)
 
     # apply one-hot coding for label
@@ -221,14 +287,28 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     encoder.fit(y)
     encoded_y = encoder.transform(y)
 
-    # load SVM classifier without PCA
-    clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
+    y_pred = []
+    if isPCAon:
+        # load PCA model
+        pca = load('saved_models/SVM-PCA-transform.joblib')
 
-    # predict
-    y_pred = clf.predict(X)
+        # apply mapping (transform) to both training and test set
+        X = pca.transform(X)
+
+        # load SVM classifier with PCA
+        clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+
+        # predict
+        y_pred = clf.predict(X)
+    else:
+        # load SVM classifier without PCA
+        clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+
+        # predict
+        y_pred = clf.predict(X)
 
     # show confusion matrix for mis-classification on validation set
-    show_confusion_matrix(y_pred, encoded_y, "SVM/ Test set")
+    show_confusion_matrix(y_pred, encoded_y,"SVM/ Test set")
 
     # Model Accuracy: how often is the classifier correct?
     print("Test accuracy:", metrics.accuracy_score(encoded_y, y_pred))
@@ -250,7 +330,7 @@ def show_confusion_matrix(y_pred, y_actual,title):
     ax.set_title(title)
     pyplot.show()
 
-def build_confusion_matrix(isSVM=True):
+def build_confusion_matrix(isSVM=True, isPCAon=True):
     #
     # build confusion matrix for mis-classification in train-val dataset
     #
@@ -258,19 +338,27 @@ def build_confusion_matrix(isSVM=True):
     # load dataset
     df_ds = pd.DataFrame()
     for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_do_feature.csv"), index_col=0)
+        df = pd.read_csv(join(train_dataset, cat, cat + "_extra_feature_32x32.csv"), index_col=0)
         labels = [cat for i in range(len(df.index))]
         df.insert(df.shape[1], "label", labels)
         df_ds = df_ds.append(df)
-
-    # print(df_ds.shape)
 
     # separate features and labels
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
-    # apply scaling to entire dataset
+    # separate keypoint features and HOG features apart
+    X1 = df_ds.iloc[:, :KP_LEN]
+    X2 = df_ds.iloc[:, KP_LEN:-1]
+
+    # apply scaler to each type of feature
     trans = StandardScaler()
+    X1 = trans.fit_transform(X1)
+    X2 = trans.fit_transform(X2)
+
+    # merge features after applying standard scaler
+    X = np.concatenate((X1, X2), axis=1)
+    # apply scaling to entire dataset
     X = trans.fit_transform(X)
 
     # apply one-hot coding for label
@@ -279,15 +367,38 @@ def build_confusion_matrix(isSVM=True):
     encoded_y = encoder.transform(y)
 
     y_preds = []
-    if isSVM:
-        # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
-        # predict poses
-        y_preds = clf.predict(X)
+    if isPCAon:
+        if isSVM:
+            # load PCA model
+            pca = load('saved_models/SVM-PCA-transform.joblib')
+
+            # apply mapping (transform) to both training and test set
+            X = pca.transform(X)
+
+            # load SVM classifier with PCA
+            clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+            # predict poses
+            y_preds = clf.predict(X)
+        else:
+            # load PCA model
+            pca = load('saved_models/NN-PCA-transform.joblib')
+
+            # apply mapping (transform) to both training and test set
+            X = pca.transform(X)
+
+            # load the saved model
+            model = keras.models.load_model("saved_models/NN-model-with-extrafea-PCA-on")
+            y_preds = model.predict_classes(X)
     else:
-        # load the saved model
-        model = keras.models.load_model("saved_models/NN-model-with-keyp_do_feat")
-        y_preds = model.predict_classes(X)
+        if isSVM:
+            # load SVM classifier without PCA
+            clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+            # predict poses
+            y_preds = clf.predict(X)
+        else:
+            # load the saved model
+            model = keras.models.load_model("saved_models/NN-model-with-extrafea-PCA-off")
+            y_preds = model.predict_classes(X)
 
     # Model Accuracy: how often is the classifier correct?
     print("Accuracy on train dataset (included both train and validation samples):",
@@ -303,7 +414,7 @@ def build_confusion_matrix(isSVM=True):
     ax.set_xlabel('Predicted')
     pyplot.show()
 
-def visualize_SVM_Classifier(test_images_path):
+def visualize_SVM_Classifier(test_images_path, isPCAon=True):
     #
     # try to predict some input images with/without poses
     #
@@ -360,11 +471,13 @@ def visualize_SVM_Classifier(test_images_path):
     opWrapper.start()
     # endregion
 
+    # test images path
+    test_images_path = 'yoga-pose-images-for-test'
     # get all images
     images = get_all_images_recursively(test_images_path)
 
-    # hold keypoint features
-    kp_record_details = []
+    # hold combined features
+    record_details = []
     # hold image indexes of appropriate combined features
     img_idxs_of_records = []
     # hold test images data
@@ -400,23 +513,16 @@ def visualize_SVM_Classifier(test_images_path):
             datum.poseKeypoints = merged_poseKeypoints
 
             # draw bounding box on test image
-            drawn_img = draw_bounding_box(datum)
+            drawn_img = draw_combined_bounding_box(datum)
             drawn_img = cv2.cvtColor(drawn_img, cv2.COLOR_BGR2RGB)
             images_data[idx] = drawn_img
 
             # an array to save mixed features (keypoints and HOG) of an image
-            keyPoint_feats_arrs = []
+            keyPoint_HOG_feats_arrs = []
             if datum.poseKeypoints.size > 1 and datum.poseKeypoints.ndim == 3:
                 # region extract keypoints features
                 keypoints_coordinates = datum.poseKeypoints[:, :, :2]
 
-                # calculate distances and orientations (if exist) between
-                # each every pair of points (each from each set)
-                # NOTE: consider each set corresponding with one person
-                extracted_dists_orients = \
-                    extract_relative_dist_orient_between_two_sets(keypoints_coordinates)
-
-                # after merging with new keypoints sets, these coordinates are translated to their center and scaled by their box size -> added in keypoints features
                 # translate and scale keypoints by its center and box size,
                 # and flattened it to 1D array
                 keyPoint_feats_arrs = normalize_keypoint_by_its_bounding_box(keypoints_coordinates)
@@ -426,28 +532,61 @@ def visualize_SVM_Classifier(test_images_path):
                 ONE_KEYPOINTS_SET_FEATURE_LENGTH = 50
                 if len(keyPoint_feats_arrs) == ONE_KEYPOINTS_SET_FEATURE_LENGTH:
                     keyPoint_feats_arrs += [0.0] * ONE_KEYPOINTS_SET_FEATURE_LENGTH
-
-                # add to list of keypoint-only features
-                kp_record_details.append(keyPoint_feats_arrs + extracted_dists_orients)
-                img_idxs_of_records.append(idx)
-
                 # endregion
 
-    if len(kp_record_details) > 0:
+                extracted_hog_feats_arrs = \
+                    extract_ROI_and_HOG_feature(datum,
+                                                image_name,
+                                                winSize= (32,32),
+                                                isDisplayImageWithROIs=False,
+                                                isExtractRoiHogBitmap=True)
+
+                # append HOG feature to a combined feature array
+                keyPoint_HOG_feats_arrs = np.append(keyPoint_feats_arrs,
+                                                    extracted_hog_feats_arrs)
+
+                # add features data to accumulate array
+                record_details.append(keyPoint_HOG_feats_arrs)
+                img_idxs_of_records.append(idx)
+
+    if len(record_details) > 0:
 
         # normalize feature vector
-        X = pd.DataFrame(kp_record_details)
+        X = pd.DataFrame(record_details)
 
-        # apply scaling to entire dataset
+        # separate keypoint features and HOG features apart
+        X1 = X.iloc[:, :KP_LEN]
+        X2 = X.iloc[:, KP_LEN:]
+
+        # apply scaler to each type of feature
         trans = StandardScaler()
+        X1 = trans.fit_transform(X1)
+        X2 = trans.fit_transform(X2)
+
+        # merge features after applying standard scaler
+        X = np.concatenate((X1, X2), axis=1)
+        # apply scaling to entire dataset
         X = trans.fit_transform(X)
 
         pose_preds = []
-        # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
+        if isPCAon:
+            # load PCA model
+            pca = load('saved_models/SVM-PCA-transform.joblib')
 
-        # predict poses
-        pose_preds = clf.predict(X)
+            # apply mapping (transform) to both training and test set
+            X = pca.transform(X)
+
+            # load SVM classifier with PCA
+            clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+
+            # predict poses
+            pose_preds = clf.predict(X)
+        else:
+            # load SVM classifier without PCA
+            clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+
+            # predict poses
+            pose_preds = clf.predict(X)
 
         # get encoded classes
         encoded_classes = load('saved_models/encoded-classes.joblib')
@@ -509,19 +648,22 @@ if __name__ == "__main__":
     train_dataset = join(dir_path, 'dataset', 'train')
     test_dataset = join(dir_path, 'dataset', 'test')
 
-    # # build the NN model
-    # build_and_save_NN_model()
+    # Key-point feature length
+    KP_LEN = 100
+
+    # build the NN model
+    # build_and_save_NN_model(isPCAon=True)
 
     # build SVM classifier
-    build_and_save_SVM_Classifier()
+    build_and_save_SVM_Classifier(isPCAon=True)
 
-    # # evaluate accuracy in test set
+    # evaluate test set
     # evaluate_SVM_Classifier_On_Test_Set(test_dataset)
 
-    # # calculate confusion matrix
-    # build_confusion_matrix(isSVM=False)
+    # calculate confusion matrix
+    # build_confusion_matrix(isSVM=False,isPCAon=True)
 
     # classify some input images
     # and print out predicted results in grid
-    # test_SVM_Classifier(images_test_path)
+    # test_SVM_Classifier(images_test_path,isPCAon=True)
 #endregion

@@ -36,7 +36,7 @@ def reduce_large_size_images(path):
 
     # set resolution threshold
     MAX_WIDTH = 1920
-    MAX_HEIGHT = 1920
+    MAX_HEIGHT = 900
 
     # get all images from dataset path
     images = get_all_images_recursively(path)
@@ -46,13 +46,14 @@ def reduce_large_size_images(path):
     for image in images:
         img = cv2.imread(image)
         if img is not None:
-            scale = 1
+            scaleW, scaleH = 1,1
             height, width, _ = img.shape
             if width > MAX_WIDTH:
-                scale = width/MAX_WIDTH + 1
-            else:
-                if height > MAX_HEIGHT:
-                    scale = height/MAX_HEIGHT + 1
+                scaleW = width/MAX_WIDTH + 1
+            if height > MAX_HEIGHT:
+                scaleH = height / MAX_HEIGHT + 1
+
+            scale = max(scaleW, scaleH)
             if scale > 1:
                 width = int(width/scale)
                 height = int(height/scale)
@@ -146,4 +147,4 @@ if __name__ == "__main__":
     # print(images)
 
     #test: reduce size of an image
-    # reduce_large_size_images("dataset-humiact5/")
+    reduce_large_size_images("dataset-humiact5")
