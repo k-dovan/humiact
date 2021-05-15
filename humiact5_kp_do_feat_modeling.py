@@ -28,9 +28,9 @@ import pickle
 
 from humiact5_plot_learning_curve import plot_learning_curve
 from humiact5_preprocessing import get_all_images_recursively
-from humiact5_features_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_feature_extraction import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
-     normalize_keypoint_by_its_bounding_box,\
+     engineer_keypoint_based_feature_vector,\
      draw_combined_bounding_box, \
      extract_relative_dist_orient_between_two_sets
 
@@ -114,7 +114,7 @@ def build_and_save_NN_model():
     print(history.history['val_accuracy'][len(history.history['val_accuracy'])-1])
 
     # save the model
-    model.save("saved_models/NN-model-with-keyp_do_feat")
+    model.save("humiact5_saved_models/NN-model-with-keyp_do_feat")
 
     # plot loss during training
     pyplot.title('Training / Validation Loss')
@@ -157,7 +157,7 @@ def build_and_save_SVM_Classifier():
 
     # save encoded classes
     encoded_classes = list(encoder.classes_)
-    dump(encoded_classes, 'saved_models/encoded-classes.joblib')
+    dump(encoded_classes, 'humiact5_saved_models/encoded-classes.joblib')
 
     # train test split
     # split train and test set
@@ -174,7 +174,7 @@ def build_and_save_SVM_Classifier():
     clf.fit(X_train,y_train)
 
     # dump classifier to file
-    dump(clf, 'saved_models/SVM-model-with-keyp_do_feat.joblib')
+    dump(clf, 'humiact5_saved_models/SVM-model-with-keyp_do_feat.joblib')
 
     # predict the response
     y_pred_train = clf.predict(X_train)
@@ -222,7 +222,7 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     encoded_y = encoder.transform(y)
 
     # load SVM classifier without PCA
-    clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
+    clf = load('humiact5_saved_models/SVM-model-with-keyp_do_feat.joblib')
 
     # predict
     y_pred = clf.predict(X)
@@ -281,12 +281,12 @@ def build_confusion_matrix(isSVM=True):
     y_preds = []
     if isSVM:
         # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-keyp_do_feat.joblib')
         # predict poses
         y_preds = clf.predict(X)
     else:
         # load the saved model
-        model = keras.models.load_model("saved_models/NN-model-with-keyp_do_feat")
+        model = keras.models.load_model("humiact5_saved_models/NN-model-with-keyp_do_feat")
         y_preds = model.predict_classes(X)
 
     # Model Accuracy: how often is the classifier correct?
@@ -419,7 +419,7 @@ def visualize_SVM_Classifier(test_images_path):
                 # after merging with new keypoints sets, these coordinates are translated to their center and scaled by their box size -> added in keypoints features
                 # translate and scale keypoints by its center and box size,
                 # and flattened it to 1D array
-                keyPoint_feats_arrs = normalize_keypoint_by_its_bounding_box(keypoints_coordinates)
+                keyPoint_feats_arrs = engineer_keypoint_based_feature_vector(keypoints_coordinates)
 
                 # check if len of the list is only 50 corresponding with only one keypoint set
                 # append a zero array of size of 50 to this list
@@ -444,13 +444,13 @@ def visualize_SVM_Classifier(test_images_path):
 
         pose_preds = []
         # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keyp_do_feat.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-keyp_do_feat.joblib')
 
         # predict poses
         pose_preds = clf.predict(X)
 
         # get encoded classes
-        encoded_classes = load('saved_models/encoded-classes.joblib')
+        encoded_classes = load('humiact5_saved_models/encoded-classes.joblib')
 
         # build predict poses for each image
         # there might be more than one pose in one image

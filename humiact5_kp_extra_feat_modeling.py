@@ -28,9 +28,9 @@ from sklearn import svm, metrics
 from joblib import dump, load
 import pickle
 from humiact5_preprocessing import get_all_images_recursively
-from humiact5_features_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_feature_extraction import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
-     normalize_keypoint_by_its_bounding_box,\
+     engineer_keypoint_based_feature_vector,\
      draw_combined_bounding_box
 from humiact5_plot_learning_curve import plot_learning_curve
 
@@ -112,7 +112,7 @@ def build_and_save_NN_model(isPCAon= True):
         X_train = pca.transform(X_train)
         X_val = pca.transform(X_val)
 
-        dump(pca, 'saved_models/NN-PCA-transform.joblib')
+        dump(pca, 'humiact5_saved_models/NN-PCA-transform.joblib')
 
     num_feats = X_train.shape[1]
     # create baseline model without PCA
@@ -141,9 +141,9 @@ def build_and_save_NN_model(isPCAon= True):
 
     # save the model
     if isPCAon:
-        model.save("saved_models/NN-model-with-extrafea-PCA-on")
+        model.save("humiact5_saved_models/NN-model-with-extrafea-PCA-on")
     else:
-        model.save("saved_models/NN-model-with-extrafea-PCA-off")
+        model.save("humiact5_saved_models/NN-model-with-extrafea-PCA-off")
 
     # plot loss during training
     pyplot.title('Training / Validation Loss')
@@ -196,7 +196,7 @@ def build_and_save_SVM_Classifier(isPCAon= True):
 
     # save encoded classes
     encoded_classes = list(encoder.classes_)
-    dump(encoded_classes, 'saved_models/encoded-classes.joblib')
+    dump(encoded_classes, 'humiact5_saved_models/encoded-classes.joblib')
 
     # train test split
     # split train and test set
@@ -214,7 +214,7 @@ def build_and_save_SVM_Classifier(isPCAon= True):
         X_train = pca.transform(X_train)
         X_val = pca.transform(X_val)
 
-        dump(pca, 'saved_models/SVM-PCA-transform.joblib')
+        dump(pca, 'humiact5_saved_models/SVM-PCA-transform.joblib')
 
     # create SVM classifier
     clf = svm.SVC(kernel='rbf')
@@ -228,9 +228,9 @@ def build_and_save_SVM_Classifier(isPCAon= True):
 
     # dump classifier to file
     if isPCAon:
-        dump(clf,'saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+        dump(clf,'humiact5_saved_models/SVM-model-with-extrafea-PCA-on.joblib')
     else:
-        dump(clf, 'saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+        dump(clf, 'humiact5_saved_models/SVM-model-with-extrafea-PCA-off.joblib')
 
     # predict the response
     y_pred_train = clf.predict(X_train)
@@ -290,19 +290,19 @@ def evaluate_SVM_Classifier_On_Test_Set(train_dataset, isPCAon=True):
     y_pred = []
     if isPCAon:
         # load PCA model
-        pca = load('saved_models/SVM-PCA-transform.joblib')
+        pca = load('humiact5_saved_models/SVM-PCA-transform.joblib')
 
         # apply mapping (transform) to both training and test set
         X = pca.transform(X)
 
         # load SVM classifier with PCA
-        clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-on.joblib')
 
         # predict
         y_pred = clf.predict(X)
     else:
         # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-off.joblib')
 
         # predict
         y_pred = clf.predict(X)
@@ -370,34 +370,34 @@ def build_confusion_matrix(isSVM=True, isPCAon=True):
     if isPCAon:
         if isSVM:
             # load PCA model
-            pca = load('saved_models/SVM-PCA-transform.joblib')
+            pca = load('humiact5_saved_models/SVM-PCA-transform.joblib')
 
             # apply mapping (transform) to both training and test set
             X = pca.transform(X)
 
             # load SVM classifier with PCA
-            clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+            clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-on.joblib')
             # predict poses
             y_preds = clf.predict(X)
         else:
             # load PCA model
-            pca = load('saved_models/NN-PCA-transform.joblib')
+            pca = load('humiact5_saved_models/NN-PCA-transform.joblib')
 
             # apply mapping (transform) to both training and test set
             X = pca.transform(X)
 
             # load the saved model
-            model = keras.models.load_model("saved_models/NN-model-with-extrafea-PCA-on")
+            model = keras.models.load_model("humiact5_saved_models/NN-model-with-extrafea-PCA-on")
             y_preds = model.predict_classes(X)
     else:
         if isSVM:
             # load SVM classifier without PCA
-            clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+            clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-off.joblib')
             # predict poses
             y_preds = clf.predict(X)
         else:
             # load the saved model
-            model = keras.models.load_model("saved_models/NN-model-with-extrafea-PCA-off")
+            model = keras.models.load_model("humiact5_saved_models/NN-model-with-extrafea-PCA-off")
             y_preds = model.predict_classes(X)
 
     # Model Accuracy: how often is the classifier correct?
@@ -525,7 +525,7 @@ def visualize_SVM_Classifier(test_images_path, isPCAon=True):
 
                 # translate and scale keypoints by its center and box size,
                 # and flattened it to 1D array
-                keyPoint_feats_arrs = normalize_keypoint_by_its_bounding_box(keypoints_coordinates)
+                keyPoint_feats_arrs = engineer_keypoint_based_feature_vector(keypoints_coordinates)
 
                 # check if len of the list is only 50 corresponding with only one keypoint set
                 # append a zero array of size of 50 to this list
@@ -571,25 +571,25 @@ def visualize_SVM_Classifier(test_images_path, isPCAon=True):
         pose_preds = []
         if isPCAon:
             # load PCA model
-            pca = load('saved_models/SVM-PCA-transform.joblib')
+            pca = load('humiact5_saved_models/SVM-PCA-transform.joblib')
 
             # apply mapping (transform) to both training and test set
             X = pca.transform(X)
 
             # load SVM classifier with PCA
-            clf = load('saved_models/SVM-model-with-extrafea-PCA-on.joblib')
+            clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-on.joblib')
 
             # predict poses
             pose_preds = clf.predict(X)
         else:
             # load SVM classifier without PCA
-            clf = load('saved_models/SVM-model-with-extrafea-PCA-off.joblib')
+            clf = load('humiact5_saved_models/SVM-model-with-extrafea-PCA-off.joblib')
 
             # predict poses
             pose_preds = clf.predict(X)
 
         # get encoded classes
-        encoded_classes = load('saved_models/encoded-classes.joblib')
+        encoded_classes = load('humiact5_saved_models/encoded-classes.joblib')
 
         # build predict poses for each image
         # there might be more than one pose in one image
@@ -649,7 +649,7 @@ if __name__ == "__main__":
     test_dataset = join(dir_path, 'dataset', 'test')
 
     # Key-point feature length
-    KP_LEN = 100
+    KP_LEN = 101
 
     # build the NN model
     # build_and_save_NN_model(isPCAon=True)

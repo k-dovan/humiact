@@ -7,7 +7,6 @@ import argparse
 
 import pandas as pd
 import numpy as np
-from humiact5_preprocessing import normalize_keypoint_by_its_bounding_box
 
 def estimate_combined_bounding_box(poseKeypoints,
                                    img_width,
@@ -176,7 +175,7 @@ def draw_separated_bounding_boxes(datum):
 
     return bnb_img
 
-def show_and_save_images_with_drawn_bounding_boxes(datum,image_name, saved_path):
+def show_and_save_images_with_drawn_bounding_boxes(datum,image_name, saved_path, show=False, save=False):
     # draw bounding boxes on output image
     bnb_img = draw_separated_bounding_boxes(datum)
 
@@ -185,13 +184,31 @@ def show_and_save_images_with_drawn_bounding_boxes(datum,image_name, saved_path)
     # resized_bnb_img = cv2.resize(bnb_img, (960, 540))
     # cv2.imshow("Merged bounding box is drawn.", resized_bnb_img)
 
-    # show original size
-    cv2.imshow("Image with bounding boxes drawn.", bnb_img)
-    cv2.waitKey(0)
+    if show:
+        # show original size
+        cv2.imshow("Image with bounding boxes drawn.", bnb_img)
+        cv2.waitKey(0)
 
-    # save the performance of the merging and elimination algorithm
-    # just enable when checking performance of the algorithm
-    cv2.imwrite(join(saved_path, image_name + "_boxes.png"), bnb_img)
+    if save:
+        # save the performance of the merging and elimination algorithm
+        # just enable when checking performance of the algorithm
+        new_image_name = image_name + "_boxes.jpg"
+
+        # There might be more than one file with the same name but extension in the dataset
+        # if it was the case, these files must save with different names
+        # first try
+        if not os.path.exists(join(saved_path,new_image_name)):
+            cv2.imwrite(join(saved_path,new_image_name), bnb_img, [cv2.IMWRITE_JPEG_QUALITY, 50])
+        else: # consecutive tries
+            # attempt another name
+            attempt = 1
+            while True:
+                extra_symbol = attempt + 1
+                new_image_name = "{}_{}_boxes.jpg".format(image_name, extra_symbol)
+                if not os.path.exists(join(saved_path, new_image_name)):
+                    cv2.imwrite(join(saved_path, new_image_name), bnb_img, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                    break
+                attempt += 1
 
 def extract_ROI_and_HOG_feature(datum,
                                 image_name,
@@ -255,8 +272,22 @@ def extract_ROI_and_HOG_feature(datum,
 
     if isExtractRoiHogBitmap:
         # save roi_img to file
-        roi_img_path = join(roi_and_hog_path, image_name + "_roi.png")
-        cv2.imwrite(roi_img_path, cv2.resize(roi_img, (192,192)))
+        roi_image_name = image_name + "_roi.jpg"
+        # There might be more than one file with the same name but extension in the dataset
+        # if it was the case, these files must save with different names
+        # first try
+        if not os.path.exists(join(roi_and_hog_path, roi_image_name)):
+            cv2.imwrite(join(roi_and_hog_path, roi_image_name), cv2.resize(roi_img, (192,192)), [cv2.IMWRITE_JPEG_QUALITY, 50])
+        else:  # consecutive tries
+            # attempt another name
+            attempt = 1
+            while True:
+                extra_symbol = attempt + 1
+                roi_image_name = "{}_{}_roi.jpg".format(image_name, extra_symbol)
+                if not os.path.exists(join(roi_and_hog_path, roi_image_name)):
+                    cv2.imwrite(join(roi_and_hog_path, roi_image_name), cv2.resize(roi_img, (192,192)), [cv2.IMWRITE_JPEG_QUALITY, 50])
+                    break
+                attempt += 1
 
     # resize roi image to winSize (64x64 or 32x32)
     resized_roi_img = cv2.resize(roi_img, winSize)
@@ -275,10 +306,25 @@ def extract_ROI_and_HOG_feature(datum,
         hog_desc_image_height = int((nbins/3)*block_steps_vertical*cell_steps_vertical)
 
         hog_desc_image = np.array(hog_desc.reshape(hog_desc_image_width, hog_desc_image_height)) * 255
-        # save hog descriptor to file as a gray-scale image
-        hog_descriptor_path = join(roi_and_hog_path, image_name + "_hog_" + str(winSize[0])\
-                                    + "x" + str(winSize[1]) + ".png")
-        cv2.imwrite(hog_descriptor_path, hog_desc_image)
+
+        # save hog descriptor to file as an image
+        hog_image_name = image_name + "_hog_" + str(winSize[0])\
+                                    + "x" + str(winSize[1]) + ".jpg"
+        # There might be more than one file with the same name but extension in the dataset
+        # if it was the case, these files must save with different names
+        # first try
+        if not os.path.exists(join(roi_and_hog_path, hog_image_name)):
+            cv2.imwrite(join(roi_and_hog_path, hog_image_name), hog_desc_image, [cv2.IMWRITE_JPEG_QUALITY, 50])
+        else:  # consecutive tries
+            # attempt another name
+            attempt = 1
+            while True:
+                extra_symbol = attempt + 1
+                hog_image_name = "{}_{}_hog_{}x{}.jpg".format(image_name, extra_symbol,winSize[0],winSize[1])
+                if not os.path.exists(join(roi_and_hog_path, hog_image_name)):
+                    cv2.imwrite(join(roi_and_hog_path, hog_image_name), hog_desc_image, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                    break
+                attempt += 1
 
     # return list of HOG features of all bounding boxes of current image
     return hog_desc
@@ -300,8 +346,8 @@ def calc_means_stds_of_keypoints_set(one_set_of_keypoints):
 
 # merging job: takes mean, std, prob of Openpose keyoints into account
 def keypoints_sets_merging(poseKeypoints,
-                           ratio_of_intersec_thresh,
-                           ratio_of_distance_thresh
+                           ratio_of_intersec_thresh=0.36,
+                           ratio_of_distance_thresh=2
                            ):
     # inputs:
     #   - poseKeypoints - list of sets of pose key points of an image
@@ -398,14 +444,14 @@ def keypoints_sets_merging(poseKeypoints,
     arr_of_keypoints_output = np.array(list_of_sets_of_keypoints_output)
 
     # replace unconfident points from big sets
-    arr_of_keypoints_output = replace_unconfident_points_in_big_set_by_more_confident_small_sets(
-                                                             poseKeypoints= arr_of_keypoints_output,
-                                                             small_set_points_thresh= 4,
-                                                             lse_thresh= 1.5,
-                                                             confidence_thresh= 0.5,
-                                                             unconfidence_thresh= 0.2,
-                                                             removed_set_points_thresh= 3
-                                                        )
+    # arr_of_keypoints_output = replace_unconfident_points_in_big_set_by_more_confident_small_sets(
+                                                             # poseKeypoints= arr_of_keypoints_output,
+                                                             # small_set_points_thresh= 4,
+                                                             # lse_thresh= 1.5,
+                                                             # confidence_thresh= 0.5,
+                                                             # unconfidence_thresh= 0.2,
+                                                             # removed_set_points_thresh= 3
+                                                        # )
 
     # print out the result
     # print ("The list of %d merged sets of keypoints:\n" % len(arr_of_keypoints_output))
@@ -594,6 +640,139 @@ def extract_relative_dist_orient_between_two_sets(keypoints_coordinates):
     # return extracted data (normalized distances and orientations)
     return extracted_data
 
+def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True):
+    #
+    # Each keypoint set will be translated to its centers and scaled by bounding box sizes.
+    # Before doing the above translation and scaling, the distance between the two set is calculated,
+    # and then the distance will be appended to the flatted feature vector.
+    # Thus the length of the feature vector is (100+1)=101
+    #
+    # Input:
+    #   -keypoints_coordinates - original pose keypoint coordinates
+    #   with the shape= (2,25,2) or (1,25,2)
+    #   -torso_mode - if True, data will be translated to mean of torso points,
+    #   and the distance dimension between two skeletons will be calculated taking into
+    #   account only torso points. If False, data will be translated to mean of all points
+    #   and all key-points will be involved for the calculation of distance
+    # Output:
+    #   -keypoints_out - list of translated, scaled and flattened keypoint coordinates +
+    #   the a distance between the two sets at the last index of the vector
+    #
+
+    # check validity
+    if keypoints_coordinates.size < 2:
+        return ()
+
+    list_of_translated_scaled_keypoints = list()
+
+    # two mean points of the two sets (skeletons)
+    two_mean_points = []
+    # two bounding box sizes of the two sets
+    two_bnb_sizes = []
+    
+    # two mean points of the two torsos of the two skeletons
+    two_mean_points_of_torsi = []
+    # two bounding box sizes of the two torsi of the two skeletons
+    two_bnb_sizes_of_torsi = []
+
+    # indices of torso points
+    torso_idxs = [1,2,5,8,9,12]
+    
+    for keypoint_set in keypoints_coordinates:
+        # calculate its center and box size
+        Xs = [item for item in keypoint_set[:, 0] if item > 0]
+        Ys = [item for item in keypoint_set[:, 1] if item > 0]
+
+        if len(Xs)==0 or len(Ys)==0:
+            continue
+
+        xMin = np.min(Xs)
+        xMax = np.max(Xs)
+        yMin = np.min(Ys)
+        yMax = np.max(Ys)
+
+        center = ((xMax + xMin)/2, (yMax + yMin)/2)
+        box_size = (xMax - xMin, yMax - yMin)
+
+        # if the keyjoint set's points are on a line, or center of box=(0,0), ignore the set
+        if (box_size[0] == 0 or box_size[1] ==0 or center[0] == 0 and center[1] ==0):
+            continue
+    
+        # add non-zero mean point
+        two_mean_points.append(center)
+        # add non-zero bounding boxe
+        two_bnb_sizes.append(box_size)
+        
+        # calculate torso center and box size
+        torso_Xs = [item for item in keypoint_set[torso_idxs, 0] if item > 0]
+        torso_Ys = [item for item in keypoint_set[torso_idxs, 1] if item > 0]
+
+        # init values
+        torso_xMin, torso_xMax, torso_yMin, torso_yMax = 0,0,0,0
+        if len(torso_Xs) !=0 and len(torso_Ys)!=0:
+            torso_xMin = np.min(torso_Xs)
+            torso_xMax = np.max(torso_Xs)
+            torso_yMin = np.min(torso_Ys)
+            torso_yMax = np.max(torso_Ys)
+
+        torso_center = ((torso_xMax + torso_xMin)/2, (torso_yMax + torso_yMin)/2)
+        torso_box_size = (torso_xMax - torso_xMin, torso_yMax - torso_yMin)
+
+        two_mean_points_of_torsi.append(torso_center)
+        two_bnb_sizes_of_torsi.append(torso_box_size)
+
+        # zip normalized (x,y) coordinate
+        # translate to center of the torso if it has non-zero coordinate
+        if torso_mod:
+            if torso_center[0] != 0 and torso_center[1] != 0:
+                normalized_coordinates = np.array([(item[0],item[1]) if (item[0]==0 or item[1]==0) else ((item[0]-torso_center[0])/box_size[0],(item[1]-torso_center[1])/box_size[1]) for item in keypoint_set])
+            else:
+                normalized_coordinates = np.array([(item[0],item[1]) if (item[0]==0 or item[1]==0) else ((item[0]-center[0])/box_size[0],(item[1]-center[1])/box_size[1]) for item in keypoint_set])
+        else:
+            normalized_coordinates = np.array([(item[0], item[1]) if (item[0] == 0 or item[1] == 0) else (
+            (item[0] - center[0]) / box_size[0], (item[1] - center[1]) / box_size[1]) for item in keypoint_set])
+
+        # flatten the normalized coordinates to feature vector
+        list_of_translated_scaled_keypoints.append(normalized_coordinates.reshape(-1))
+
+    # reshape the list to array
+    list_of_translated_scaled_keypoints = [item for sublist in list_of_translated_scaled_keypoints \
+                                           for item in sublist]
+
+    # check if len of the list is only 50 corresponding with only one keypoint set
+    # append a zero array of size of 50 to this list
+    ONE_KEYPOINTS_SET_FEATURE_LENGTH = 50
+    if len(list_of_translated_scaled_keypoints) == ONE_KEYPOINTS_SET_FEATURE_LENGTH:
+        list_of_translated_scaled_keypoints += [0.0] * ONE_KEYPOINTS_SET_FEATURE_LENGTH
+        # add zero distance to the end of this feature vector
+        list_of_translated_scaled_keypoints += [0.0]
+    else: # the vector feature is of length 100
+        # calculate the distance and add to the end
+        # Formula to calculate the distance:
+        # dist = sqrt(((x2-x1)/(w1+w2))**2 + ((y2-y1)/(h1+h2))**2)
+        dist = 0.0
+        torso_factor = 0.1
+        allpoint_factor = 1.0
+        if torso_mod:
+            # check if two mean points and two box sizes of the two torsi have only non-zero values
+            # if it is the case, calculate the distance between the two torsi
+            if (np.all(two_mean_points_of_torsi) and np.all(two_bnb_sizes_of_torsi)):
+                normalized_delta_X = (two_mean_points_of_torsi[0][0] - two_mean_points_of_torsi[1][0])/(two_bnb_sizes_of_torsi[0][0] +two_bnb_sizes_of_torsi[1][0])
+                normalized_delta_Y = (two_mean_points_of_torsi[0][1] - two_mean_points_of_torsi[1][1])/(two_bnb_sizes_of_torsi[0][1] +two_bnb_sizes_of_torsi[1][1])
+                dist = torso_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
+            else: # if not, calculate the distance between two all-keypoints-based bounding boxes
+                normalized_delta_X = (two_mean_points[0][0] - two_mean_points[1][0])/(two_bnb_sizes[0][0] +two_bnb_sizes[1][0])
+                normalized_delta_Y = (two_mean_points[0][1] - two_mean_points[1][1])/(two_bnb_sizes[0][1] +two_bnb_sizes[1][1])
+                dist = allpoint_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
+        else:
+            normalized_delta_X = (two_mean_points[0][0] - two_mean_points[1][0])/(two_bnb_sizes[0][0] +two_bnb_sizes[1][0])
+            normalized_delta_Y = (two_mean_points[0][1] - two_mean_points[1][1])/(two_bnb_sizes[0][1] +two_bnb_sizes[1][1])
+            dist = allpoint_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
+            
+        list_of_translated_scaled_keypoints += [dist]
+
+    return list_of_translated_scaled_keypoints
+
 def extract_dataset_features(dataset,
                              isWithExtraFeature=True):
     #
@@ -679,10 +858,9 @@ def extract_dataset_features(dataset,
 
             # create ROI and HOG directory
             roi_and_hog_path = ""
-            if isWithExtraFeature:
-                roi_and_hog_path = join(cat_path, roi_hog_folder_name)
-                if not os.path.exists(roi_and_hog_path):
-                    os.mkdir(roi_and_hog_path)
+            roi_and_hog_path = join(cat_path, roi_hog_folder_name)
+            if not os.path.exists(roi_and_hog_path):
+                os.mkdir(roi_and_hog_path)
 
             # get all images from the category
             image_paths = op.get_images_on_directory(cat_path)
@@ -708,6 +886,7 @@ def extract_dataset_features(dataset,
                 # check if exists pose key points data
                 if not (datum.poseKeypoints.size < 2):
                     # merging keypoints sets if applicable
+                    
                     merged_poseKeypoints = keypoints_sets_merging(datum.poseKeypoints,
                                                                   ratio_of_intersec_thresh= 0.36,
                                                                   ratio_of_distance_thresh= 2)
@@ -716,12 +895,12 @@ def extract_dataset_features(dataset,
                     datum.poseKeypoints = merged_poseKeypoints
 
                     # an array to save keypoint feature
-                    keyPoint_feats_arrs = []
+                    keypoint_based_feats_vector = []
                     if datum.poseKeypoints.size > 1 and datum.poseKeypoints.ndim == 3:
 
                         # ================================================================================= #
                         # ============== show and save images with drawn bounding boxes =================== #
-                        show_and_save_images_with_drawn_bounding_boxes(datum, image_name, roi_and_hog_path)
+                        show_and_save_images_with_drawn_bounding_boxes(datum, image_name, roi_and_hog_path,show=False, save=True)
                         # ================================================================================= #
 
                         # region Extract key-point features
@@ -733,17 +912,17 @@ def extract_dataset_features(dataset,
                         # extracted_dists_orients = \
                         #     extract_relative_dist_orient_between_two_sets(keypoints_coordinates)
 
-                        # after merging with new keypoints sets, these coordinates are translated to their center and scaled by their box size -> added in keypoints features
-                        # translate and scale keypoints by its center and box size,
-                        # and flattened it to 1D array
-                        keyPoint_feats_arrs = normalize_keypoint_by_its_bounding_box(keypoints_coordinates)
+                        # after merging with new keypoints sets, (these coordinates are translated to their centers
+                        # and scaled by their box sizes) + (distance between two skeletons) -> added in feature vectors
+                        keypoint_based_feats_vector = engineer_keypoint_based_feature_vector(keypoints_coordinates,
+                                                                                             torso_mod=True)
 
                         # add to list of keypoint-only features
-                        kp_record_details.append(keyPoint_feats_arrs)
+                        kp_record_details.append(keypoint_based_feats_vector)
 
                         # ===================== distances+orientations features ===================== #
                         # save keypoints+distances+orientations features
-                        # kp_do_record_details.append(keyPoint_feats_arrs + extracted_dists_orients)
+                        # kp_do_record_details.append(keypoint_based_feats_vector + extracted_dists_orients)
                         # =========================================================================== #
 
                         # endregion
@@ -756,10 +935,10 @@ def extract_dataset_features(dataset,
                                                             image_name,
                                                             roi_and_hog_path,
                                                             winSize= winSize,
-                                                            isExtractRoiHogBitmap=False)
+                                                            isExtractRoiHogBitmap=True)
 
                             # append HOG feature to a combined feature array
-                            keyPoint_HOG_feats_arrs = np.append(keyPoint_feats_arrs,
+                            keyPoint_HOG_feats_arrs = np.append(keypoint_based_feats_vector,
                                                                 extracted_hog_feats_arrs)
 
                             # add mixed features data to accumulate array
@@ -794,16 +973,8 @@ if __name__ == "__main__":
     print("Starting features_extraction.py as entry point....")
     dir_path = os.path.dirname(os.path.abspath(__file__))
 
-    dataset_train = join(dir_path, 'dataset', 'train')
-    dataset_test = join(dir_path, 'dataset', 'test')
+    extract_dataset_features("dataset-humiact5/test/",
+                            isWithExtraFeature=False)
 
-    # extract keypoints features from train set
-    # extract_dataset_features(dataset_train,
-    #                          isWithExtraFeature=True)
-
-    extract_dataset_features("experiments/merging_elimination_test/",
-                             isWithExtraFeature=False)
-
-    # # test error cases with merging, ROI images
-    # extract_dataset_features("media/test",
-    #                          isWithExtraFeature=True)
+    # extract_dataset_features("experiments/testing/",
+    #                           isWithExtraFeature=False)

@@ -1,5 +1,6 @@
 import os
-from os.path import join
+from os import listdir
+from os.path import join, isfile
 import sys
 from sys import platform
 import cv2
@@ -18,7 +19,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout
 from keras.utils import np_utils
 from keras.optimizers import Adam
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split, ShuffleSplit
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
@@ -28,10 +29,11 @@ import pickle
 
 from humiact5_plot_learning_curve import plot_learning_curve
 from humiact5_preprocessing import get_all_images_recursively
-from humiact5_features_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_feature_extraction import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
-     normalize_keypoint_by_its_bounding_box,\
-     draw_combined_bounding_box
+     engineer_keypoint_based_feature_vector,\
+     draw_combined_bounding_box,\
+     draw_separated_bounding_boxes
 
 #region train and test modules
 def baseline_model(input_dim):
@@ -71,8 +73,9 @@ def build_and_save_NN_model():
     y = df_ds.iloc[:, -1]
 
     # apply scaler to each type of feature
-    trans = StandardScaler()
-    X = trans.fit_transform(X)
+    # trans = StandardScaler()
+    # trans = MinMaxScaler()
+    # X = trans.fit_transform(X)
 
     # apply one-hot coding for label
     encoder = LabelEncoder()
@@ -113,7 +116,7 @@ def build_and_save_NN_model():
     print(history.history['val_accuracy'][len(history.history['val_accuracy'])-1])
 
     # save the model
-    model.save("saved_models/NN-model-with-keypfea")
+    model.save("humiact5_saved_models/NN-model-with-keypfea")
 
     # plot loss during training
     pyplot.title('Training / Validation Loss')
@@ -145,9 +148,10 @@ def build_and_save_SVM_Classifier():
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
-    # apply scaling to entire dataset
-    trans = StandardScaler()
-    X = trans.fit_transform(X)
+    # # apply scaling to entire dataset
+    # trans = StandardScaler()
+    # trans = MinMaxScaler()
+    # X = trans.fit_transform(X)
 
     # apply one-hot coding for label
     encoder = LabelEncoder()
@@ -156,7 +160,7 @@ def build_and_save_SVM_Classifier():
 
     # save encoded classes
     encoded_classes = list(encoder.classes_)
-    dump(encoded_classes, 'saved_models/encoded-classes.joblib')
+    dump(encoded_classes, 'humiact5_saved_models/encoded-classes.joblib')
 
     # train test split
     # split train and test set
@@ -173,7 +177,7 @@ def build_and_save_SVM_Classifier():
     clf.fit(X_train,y_train)
 
     # dump classifier to file
-    dump(clf, 'saved_models/SVM-model-with-keypfea.joblib')
+    dump(clf, 'humiact5_saved_models/SVM-model-with-keypfea.joblib')
 
     # predict the response
     y_pred_train = clf.predict(X_train)
@@ -188,13 +192,40 @@ def build_and_save_SVM_Classifier():
     print("Training accuracy:", metrics.accuracy_score(y_train, y_pred_train))
     print("Validation accuracy:", metrics.accuracy_score(y_val, y_pred))
 
+def print_out_misclassified_samples(encoded_ground_truth, encoded_predicted, y_ground_truth, y_predicted):
+    #
+    # Print out samples which mistook "predicted" class for "ground_truth" class
+    # Encoded classes: Boxing:0,Facing:1,HHold:2,HShake:3,XOXO:4
+    # NOTE: This function is for diagnostic purpose.
+    #
+    # Input:
+    #   -ground_truth -encoded ground truth class whose samples are considering
+    #   -predicted -an encoded class predicted by classifier which differs from ground truth class
+    #   -y_ground_truth -ground truth labels of the test set (no shuffle allowed)
+    #   -y_predicted -predicted labels for the set
+    # Output:
+    #   -void() -print out misclassified samples
+    #
+
+    # misclassified indexes
+    misclassified_indexes = np.where((y_ground_truth==encoded_ground_truth)&(y_predicted==encoded_predicted))
+
+    # print out indexes of misclassified samples
+    print ("Indexes of {} samples for which the classifier predicted as {}.".format(categories[encoded_ground_truth],categories[encoded_predicted]))
+
+    for idx in misclassified_indexes:
+        print(idx, end="")
+    print("\n")
+
+    pass
+
 def evaluate_NN_Classifier_On_Test_Set(test_dataset):
     #
     # try to predict some input images with/without yoga poses
     #
     pass
 
-def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
+def evaluate_SVM_Classifier_On_Test_Set():
     #
     # evaluate the accuracy of the model in test set
     #
@@ -211,9 +242,10 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     X = df_ds.iloc[:, :-1]
     y = df_ds.iloc[:, -1]
 
-    # apply scaling to entire dataset
-    trans = StandardScaler()
-    X = trans.fit_transform(X)
+    # # apply scaling to entire dataset
+    # trans = StandardScaler()
+    # trans = MinMaxScaler()
+    # X = trans.fit_transform(X)
 
     # apply one-hot coding for label
     encoder = LabelEncoder()
@@ -221,10 +253,14 @@ def evaluate_SVM_Classifier_On_Test_Set(test_dataset):
     encoded_y = encoder.transform(y)
 
     # load SVM classifier without PCA
-    clf = load('saved_models/SVM-model-with-keypfea.joblib')
+    clf = load('humiact5_saved_models/SVM-model-with-keypfea.joblib')
 
     # predict
     y_pred = clf.predict(X)
+
+    # diagnose misclassified samples
+    # 0:Boxing, 1:Facing, 2:HHold, 3:HShake, 4:XOXO
+    print_out_misclassified_samples(3, 1, encoded_y, y_pred)
 
     # show confusion matrix for mis-classification on validation set
     show_confusion_matrix(y_pred, encoded_y,"SVM/ Test set")
@@ -239,12 +275,10 @@ def show_confusion_matrix(y_pred, y_actual,title):
     confusion = confusion_matrix(y_actual, y_pred, normalize='true');
     # print(confusion)
 
-    categories_short = ["Boxing", "Facing", "HHolding", "HShaking", "Hugging", "Kissing"]
-    df_cm = DataFrame(confusion, index=categories_short, columns=categories_short)
+    df_cm = DataFrame(confusion, index=categories, columns=categories)
 
     fig, ax = pyplot.subplots(figsize=(7, 6))
     ax = sn.heatmap(df_cm, cmap='Oranges', annot=True, ax=ax)
-    ax = sn.heatmap(df_cm, cmap='Oranges', annot=True)
     ax.set_ylabel('True')
     ax.set_xlabel('Predicted')
     ax.set_title(title)
@@ -270,8 +304,9 @@ def build_confusion_matrix(isSVM=True):
     y = df_ds.iloc[:, -1]
 
     # apply scaling to entire dataset
-    trans = StandardScaler()
-    X = trans.fit_transform(X)
+    # trans = StandardScaler()
+    # trans = MinMaxScaler()
+    # X = trans.fit_transform(X)
 
     # apply one-hot coding for label
     encoder = LabelEncoder()
@@ -281,12 +316,12 @@ def build_confusion_matrix(isSVM=True):
     y_preds = []
     if isSVM:
         # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keypfea.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-keypfea.joblib')
         # predict poses
         y_preds = clf.predict(X)
     else:
         # load the saved model
-        model = keras.models.load_model("saved_models/NN-model-with-keypfea")
+        model = keras.models.load_model("humiact5_saved_models/NN-model-with-keypfea")
         y_preds = model.predict_classes(X)
 
     # Model Accuracy: how often is the classifier correct?
@@ -361,7 +396,7 @@ def visualize_SVM_Classifier(test_images_path):
     # endregion
 
     # get all images
-    images = get_all_images_recursively(test_images_path)
+    images = [join(test_images_path, f) for f in listdir(test_images_path) if isfile(join(test_images_path, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
 
     # hold keypoint features
     kp_record_details = []
@@ -369,7 +404,7 @@ def visualize_SVM_Classifier(test_images_path):
     img_idxs_of_records = []
     # hold test images data
     images_data = []
-    for idx in range(0,len(images)):
+    for idx in range(len(images)):
         print("\nCurrent image: " + images[idx] + "\n")
 
         # get image full name (with file extension)
@@ -392,15 +427,16 @@ def visualize_SVM_Classifier(test_images_path):
 
         # check if exists pose key points data
         if not (datum.poseKeypoints.size < 2):
-            # merging bounding boxes if applicable
+            # merging keypoints sets if applicable
             merged_poseKeypoints = keypoints_sets_merging(datum.poseKeypoints,
                                                           ratio_of_intersec_thresh=0.36,
                                                           ratio_of_distance_thresh=2)
+
             # assign merged_poseKeypoints to datum.poseKeypoints array
             datum.poseKeypoints = merged_poseKeypoints
 
             # draw bounding box on test image
-            drawn_img = draw_combined_bounding_box(datum)
+            drawn_img = draw_separated_bounding_boxes(datum)
             drawn_img = cv2.cvtColor(drawn_img, cv2.COLOR_BGR2RGB)
             images_data[idx] = drawn_img
 
@@ -413,17 +449,10 @@ def visualize_SVM_Classifier(test_images_path):
                 # after merging with new keypoints sets, these coordinates are translated to their center and scaled by their box size -> added in keypoints features
                 # translate and scale keypoints by its center and box size,
                 # and flattened it to 1D array
-                keyPoint_feats_arrs = normalize_keypoint_by_its_bounding_box(keypoints_coordinates)
-
-                # check if len of the list is only 50 corresponding with only one keypoint set
-                # append a zero array of size of 50 to this list
-                ONE_KEYPOINTS_SET_FEATURE_LENGTH = 50
-                if len(keyPoint_feats_arrs) == ONE_KEYPOINTS_SET_FEATURE_LENGTH:
-                    keyPoint_feats_arrs += [0.0] * ONE_KEYPOINTS_SET_FEATURE_LENGTH
+                keyPoint_feats_arrs = engineer_keypoint_based_feature_vector(keypoints_coordinates)
 
                 # add to list of keypoint-only features
                 kp_record_details.append((keyPoint_feats_arrs))
-                img_idxs_of_records.append(idx)
 
                 # endregion
 
@@ -432,40 +461,19 @@ def visualize_SVM_Classifier(test_images_path):
         # normalize feature vector
         X = pd.DataFrame(kp_record_details)
 
-        # apply scaling to entire dataset
-        trans = StandardScaler()
-        X = trans.fit_transform(X)
+        # # apply scaling to entire dataset
+        # trans = StandardScaler()
+        # trans = MinMaxScaler()
+        # X = trans.fit_transform(X)
 
-        pose_preds = []
         # load SVM classifier without PCA
-        clf = load('saved_models/SVM-model-with-keypfea.joblib')
+        clf = load('humiact5_saved_models/SVM-model-with-keypfea.joblib')
 
         # predict poses
         pose_preds = clf.predict(X)
 
         # get encoded classes
-        encoded_classes = load('saved_models/encoded-classes.joblib')
-
-        # build predict poses for each image
-        # there might be more than one pose in one image
-        image_poses_list = [()]*len(images_data)
-        for pose_idx in range(0,len(pose_preds)):
-            image_poses_list[img_idxs_of_records[pose_idx]] = image_poses_list[img_idxs_of_records[pose_idx]] + (pose_preds[pose_idx],)
-
-        # count instances of poses in each image
-        # and build label for each predicted image
-        # hold labels for each predicted image
-        predicted_img_lbls = [None]*len(images_data)
-        for img_idx in range(0,len(image_poses_list)):
-            c = Counter(image_poses_list[img_idx])
-            lbl = ""
-            for pose in c.keys():
-                lbl = lbl + str(c[pose]) + " " + str(encoded_classes[pose]) + ", "
-            if lbl == "": lbl = "No pose detected"
-            else: lbl = lbl.rstrip().rstrip(',')
-
-            # assign label to list
-            predicted_img_lbls[img_idx] = lbl
+        encoded_classes = load('humiact5_saved_models/encoded-classes.joblib')
 
         # show grid of predicted images
         nCols = 4
@@ -475,7 +483,10 @@ def visualize_SVM_Classifier(test_images_path):
         else:
             nRows = (int)(len(images_data)/nCols +1)
 
-        pyplot.rc('figure', figsize=(20, 20))
+        size_w = 4*nCols
+        size_h = 3.2*nRows
+
+        pyplot.rc('figure', figsize=(size_w, size_h))
         fig = pyplot.figure()
         grid = ImageGrid(fig, 111,  # similar to subplot(111)
                          nrows_ncols=(nRows, nCols),  # creates mxn grid of axes
@@ -483,12 +494,12 @@ def visualize_SVM_Classifier(test_images_path):
                          share_all=True
                          )
         fontdict = {'fontsize': 10,'color': 'red'}
-        for ax, im, lbl in zip(grid, images_data, predicted_img_lbls):
+        for ax, im, pred in zip(grid, images_data, pose_preds):
             # resize image
             im = cv2.resize(im, (400, 320))
             # Iterating over the grid returns the Axes.
             ax.imshow(im)
-            ax.set_title(lbl, fontdict=fontdict, pad=2)
+            ax.set_title(encoded_classes[pred], fontdict=fontdict, pad=2)
 
         pyplot.show()
 
@@ -499,23 +510,23 @@ if __name__ == "__main__":
     print("Starting __main__....")
     dir_path = os.path.dirname(os.path.abspath(__file__))
 
-    categories = ["Boxing", "Facing", "Handholding", "Handshaking", "Hugging", "Kissing"]
-    train_dataset = join(dir_path, 'dataset', 'train')
-    test_dataset = join(dir_path, 'dataset', 'test')
+    categories = ["Boxing", "Facing", "HHold", "HShake", "XOXO"]
+    train_dataset = join(dir_path, 'dataset-humiact5', 'train')
+    test_dataset = join(dir_path, 'dataset-humiact5', 'test')
 
     # # build the NN model
     # build_and_save_NN_model()
 
     # build SVM classifier
-    build_and_save_SVM_Classifier()
+    # build_and_save_SVM_Classifier()
 
     # evaluate accuracy in test set
-    # evaluate_SVM_Classifier_On_Test_Set(test_dataset)
+    evaluate_SVM_Classifier_On_Test_Set()
 
     # # calculate confusion matrix
     # build_confusion_matrix(isSVM=False)
 
     # classify some input images
     # and print out predicted results in grid
-    # test_SVM_Classifier(images_test_path)
+    # visualize_SVM_Classifier("dataset-humiact5/test/HShake/")
 #endregion
