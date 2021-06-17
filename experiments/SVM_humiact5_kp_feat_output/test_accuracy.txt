@@ -1,0 +1,10 @@
+attempt=0: test_acc= 0.8077634011090573
+attempt=1: test_acc= 0.8354898336414048
+attempt=2: test_acc= 0.822550831792976
+attempt=3: test_acc= 0.8170055452865065
+attempt=4: test_acc= 0.8114602587800369
+attempt=5: test_acc= 0.8151571164510166
+attempt=6: test_acc= 0.8077634011090573
+attempt=7: test_acc= 0.8133086876155268
+attempt=8: test_acc= 0.822550831792976
+attempt=9: test_acc= 0.8077634011090573

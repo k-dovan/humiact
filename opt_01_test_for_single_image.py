@@ -11,7 +11,7 @@ import os
 from sys import platform
 import argparse
 import numpy as np
-from humiact5_feature_extraction import estimate_combined_bounding_box
+from humiact5_feature_engineering import estimate_combined_bounding_box
 
 try:
     # Import Openpose (Windows/Ubuntu/OSX)

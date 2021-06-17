@@ -13,6 +13,7 @@
 import numpy as np
 import os
 import re
+from os.path import exists
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -92,7 +93,7 @@ def scale_skeleton(skeleton_data):
     return np.append([xs],[ys],axis=0).transpose()
 
     pass
-
+"""
 def extract_sequence_mode_rgb_skeleton_features(NoS=20):
     #
     # Extract RGB skeleton features from NTU_RGB_D dataset
@@ -253,16 +254,17 @@ def extract_sequence_mode_rgb_skeleton_features(NoS=20):
     print("The dataset is processed successfully!")
 
     pass
+"""
 
-def extract_frame_mode_rgb_skeleton_features(space=5):
+def extract_frame_mode_rgb_skeleton_features(skips=4):
     #
     # Extract RGB skeleton features from NTU_RGB_D dataset
     # and build train/test sets for 2 settings (cross-subject, cross-view), then
     # for each setting, save train and test set separately to train and test folder
     # Input:
-    #   -space -the space (or distance) from the next selected frame to current selected one
+    #   -skips -the number of frames skipped from current selected frame to the next selected one
     #   to create a feature vector with shape (1, (2*25*2)) = (1,100)
-    #   Explain: the shape length equal to
+    #   Explain: the shape of length:
     #   (2 skeletons)*(25-number of joints)*(2 dimensions XY)
     # Output:
     #   -void() -save train/test sets for each of the two settings
@@ -330,12 +332,12 @@ def extract_frame_mode_rgb_skeleton_features(space=5):
             continue
 
         # compute number of selected frames
-        picked_size = (nFrames-1)//(space+1) + 1
+        picked_size = (nFrames-1) // (skips + 1) + 1
 
         picked_idxs = [-1]*picked_size
 
         for i in range(picked_size):
-            picked_idxs[i] = i*(space+1)
+            picked_idxs[i] = i*(skips + 1)
 
         # frame_feat_len = (2 skeletons)*(25 key joints)*(2 dimensions XY) + (1 distance)
         frame_feat_len = 2*25*2+1
@@ -358,15 +360,42 @@ def extract_frame_mode_rgb_skeleton_features(space=5):
             dist = 0.0
             if (skeleton1.any() and skeleton2.any()):
 
-                # calculate bounding boxes of the two skeletons
-                width1, height1 = max(skeleton1[:,0]) - min(skeleton1[:,0]), max(skeleton1[:,1]) - min(skeleton1[:,1])
-                width2, height2 = max(skeleton2[:,0]) - min(skeleton2[:,0]), max(skeleton2[:,1]) - min(skeleton2[:,1])
                 # consider the distance between the two skeletons as
                 # the distance from the two middle spines
-                diff = skeleton2[1] - skeleton1[1]
-                # normalized the diff
-                diff = np.divide(diff,[width1+width2, height1+height2])
-                dist = np.sqrt(np.sum(np.square(diff)))
+                diff_2mid = skeleton2[1] - skeleton1[1]
+                dist_2mid = np.sqrt(np.sum(np.square(diff_2mid)))
+
+                # length of the spine of the main actor (at index of 0 or skeleton1)
+                # base of the spine (id:1) -> index=0
+                spine_base = skeleton1[0]
+                # spine (top) (id:21) -> index=20
+                spine_top = skeleton1[20]
+                spine_length = np.sqrt(np.sum(np.square(spine_top-spine_base)))
+
+                if spine_length == 0:
+                    # use the second actor spine length
+                    # base of the spine (id:1) -> index=0
+                    spine_base = skeleton2[0]
+                    # spine (top) (id:21) -> index=20
+                    spine_top = skeleton2[20]
+                    spine_length = np.sqrt(np.sum(np.square(spine_top - spine_base)))
+
+                # factor trying to scale down the dist to the range of (0,1)
+                factor = 0.1
+                if spine_length > 0:
+                    # normalized the distance
+                    dist = factor*dist_2mid/spine_length
+                else:
+                    # use max value of box size of the main actor
+                    # calculate bounding boxes of the main actor
+                    width1, height1 = max(skeleton1[:, 0]) - min(skeleton1[:, 0]), max(skeleton1[:, 1]) - min(
+                        skeleton1[:, 1])
+
+                    # get max box value of box size
+                    max_box_size_val = max(width1, height1)
+
+                    factor2 = 0.33
+                    dist = factor2*dist_2mid/max_box_size_val
 
             # normalize each skeleton by translation, rotation, and scaling
             skeleton1 = scale_skeleton(rotate_skeleton(translate_skeleton(skeleton1)))
@@ -396,10 +425,22 @@ def extract_frame_mode_rgb_skeleton_features(space=5):
                 cv_test[action_code].append(item)
 
     # save train/test sets to appropriate files
-    cs_train_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_space{}/cross-subject/train/".format(space)
-    cs_test_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_space{}/cross-subject/test/".format(space)
-    cv_train_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_space{}/cross-view/train/".format(space)
-    cv_test_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_space{}/cross-view/test/".format(space)
+    cs_train_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_skips{}/cross-subject/train/".format(skips)
+    cs_test_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_skips{}/cross-subject/test/".format(skips)
+    cv_train_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_skips{}/cross-view/train/".format(skips)
+    cv_test_path = "dataset-NTU-RGB-D/extracted_features/frm_mod_skips{}/cross-view/test/".format(skips)
+
+    # check if the paths exist, it not, create them beforehand
+    # create directory if not exists
+    if not exists(cs_train_path):
+        os.makedirs(cs_train_path)
+    if not exists(cs_test_path):
+        os.makedirs(cs_test_path)
+    if not exists(cv_train_path):
+        os.makedirs(cv_train_path)
+    if not exists(cv_test_path):
+        os.makedirs(cv_test_path)
+
     for action_code in cs_train.keys():
         data_to_write = pd.DataFrame(cs_train[action_code])
         data_to_write.to_csv("{}{}.csv".format(cs_train_path, action_code))
@@ -446,7 +487,7 @@ if __name__ == "__main__":
     # ========================================
 
     # ========================================
-    extract_frame_mode_rgb_skeleton_features(space=8)
+    extract_frame_mode_rgb_skeleton_features(skips=128)
     # ========================================
 
 

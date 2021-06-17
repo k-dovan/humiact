@@ -1,0 +1,4 @@
+
+setting=cs,skips=8: train_acc= 0.4645375807792347, val_acc= 0.42963688823561436
+setting=cs,skips=4: train_acc= 0.5045274173037736, val_acc= 0.48099415204678364
+setting=cs,skips=2: train_acc= 0.5408210848317541, val_acc= 0.5205635082935697

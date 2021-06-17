@@ -28,7 +28,7 @@ import pickle
 
 from humiact5_plot_learning_curve import plot_learning_curve
 from humiact5_preprocessing import get_all_images_recursively
-from humiact5_feature_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_feature_engineering import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
      engineer_keypoint_based_feature_vector,\
      draw_combined_bounding_box, \
@@ -108,10 +108,10 @@ def build_and_save_NN_model():
 
     # print last epoch accuracy
     # for training set and validation set
-    print("Last training accuracy: ")
-    print(history.history['accuracy'][len(history.history['accuracy'])-1])
-    print("Last validation accuracy: ")
-    print(history.history['val_accuracy'][len(history.history['val_accuracy'])-1])
+    print("Best training accuracy: ")
+    print(max(history.history['accuracy']))
+    print("Best validation accuracy: ")
+    print(max(history.history['val_accuracy']))
 
     # save the model
     model.save("humiact5_saved_models/NN-model-with-keyp_do_feat")
@@ -237,7 +237,7 @@ def show_confusion_matrix(y_pred, y_actual,title):
     #
     # show confusion matrix for mis-classification on validation set
     #
-    confusion = confusion_matrix(y_actual, y_pred, normalize='true');
+    confusion = confusion_matrix(y_actual, y_pred, normalize='pred');
     # print(confusion)
 
     categories_short = ["Boxing", "Facing", "HHolding", "HShaking", "Hugging", "Kissing"]

@@ -1,0 +1,31 @@
+This experiment was conducted with two independent processes:
+
+- Process 01: 
+	activation_fn = ('relu', 'sigmoid')
+	learning rate (-3,-2,2) # logspace -> [0.001, 0.01]
+	first_neurons = (400, 700, 100)
+	# additional params
+	attempt = 1
+	epochs = 200
+
+	# thanks to having huge dataset, we choose batch_size=64 to speed up the training process
+	batch_size = 64
+
+- Process 02: 
+	activation_fn = ('relu', 'sigmoid')
+	learning rate (-3.5,-3.5,1) # logspace -> [0003162277]
+	first_neurons = (400, 700, 100)
+	# additional params
+	attempt = 1
+	epochs = 200
+
+	# thanks to having huge dataset, we choose batch_size=64 to speed up the training process
+	batch_size = 64
+
+===========================================
+detailed_tuning_data shape=(2,3,4,1,200,4)
+summary_tuning_data shape=(2,3,4,4)
+===========================================
+
+==> This is why the plot summary perfomance of the tuning process was hardcoded the learning inside the function
+    Note: Find the keyword: hardcode learning rate	

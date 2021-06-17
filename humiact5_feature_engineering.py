@@ -553,13 +553,17 @@ def replace_unconfident_points_in_big_set_by_more_confident_small_sets(poseKeypo
 #TODO: adjust the function to take variace of a set into account. Prioritize sets with bigger variance.
 def get_two_sets_with_biggest_variance(keypoints_arrs):
     #
-    # This function is to get two sets with the biggest variance from the input arrays
-    # Note: bigger variance means the skeleton is closer (main actor of the scene)
+    # This function is to get two sets with the biggest variance from the input arrays and with
+    # the main actor at index 0 of the output array
+    # Note: bigger variance means the skeleton is closer from the camera (two actors of the scene)
+    # One main actor would be defined as following:
+    # If the 2 sets have the same number of key-points, take the lower variance one
+    # If not, take the one which has bigger number of key-points
     #
     # Input:
     #   -keypoints_arrs - the refined arrays after merging and eliminating (at least 5 non-zero joints)
     # Output:
-    #   -an array with maximum 2 sets of key points (corresponding with two main actor of the scene)
+    #   -an array of two skeletons with main actor at index 0
     #
 
     n = len(keypoints_arrs)
@@ -578,11 +582,21 @@ def get_two_sets_with_biggest_variance(keypoints_arrs):
         std_F1 = stdXY[0]*stdXY[1]/(stdXY[0]+stdXY[1])
         index_value_pairs += (i, std_F1),
 
-    # sort this tupple
+    # sort this tuple by variance
     sorted_index_value_pairs = sorted(index_value_pairs,key=lambda x:x[1],reverse=True)
 
-    return np.append([keypoints_arrs[sorted_index_value_pairs[0][0]]], [keypoints_arrs[sorted_index_value_pairs[1][0]]],axis=0)
+    # get two first sets (two main actors of the scene)
+    actor1 = keypoints_arrs[sorted_index_value_pairs[0][0]]
+    actor2 = keypoints_arrs[sorted_index_value_pairs[1][0]]
 
+    # calculate number of key-points for each actor
+    noKP_actor1 = len([i for i in range(len(actor1)) if (actor1[i][0] > 0 or actor1[i][1] > 0)])
+    noKP_actor2 = len([i for i in range(len(actor2)) if (actor2[i][0] > 0 or actor2[i][1] > 0)])
+
+    if noKP_actor1 <= noKP_actor2:
+        return np.stack((actor2,actor1))
+    else:
+        return np.stack((actor1, actor2))
 
 def extract_relative_dist_orient_between_two_sets(keypoints_coordinates):
 
@@ -640,7 +654,7 @@ def extract_relative_dist_orient_between_two_sets(keypoints_coordinates):
     # return extracted data (normalized distances and orientations)
     return extracted_data
 
-def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True):
+def engineer_keypoint_based_feature_vector(keypoints_coordinates, spine_based=True):
     #
     # Each keypoint set will be translated to its centers and scaled by bounding box sizes.
     # Before doing the above translation and scaling, the distance between the two set is calculated,
@@ -650,10 +664,10 @@ def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True
     # Input:
     #   -keypoints_coordinates - original pose keypoint coordinates
     #   with the shape= (2,25,2) or (1,25,2)
-    #   -torso_mode - if True, data will be translated to mean of torso points,
-    #   and the distance dimension between two skeletons will be calculated taking into
-    #   account only torso points. If False, data will be translated to mean of all points
-    #   and all key-points will be involved for the calculation of distance
+    #   -spine_mode - if True, data will be translated to middle of spine,
+    #   and the distance dimension between two skeletons will be calculated based
+    #   on the two middle-of-spine points. If False, data will be translated to
+    #   mean of all points and all key-points will be involved for the calculation
     # Output:
     #   -keypoints_out - list of translated, scaled and flattened keypoint coordinates +
     #   the a distance between the two sets at the last index of the vector
@@ -670,13 +684,11 @@ def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True
     # two bounding box sizes of the two sets
     two_bnb_sizes = []
     
-    # two mean points of the two torsos of the two skeletons
-    two_mean_points_of_torsi = []
-    # two bounding box sizes of the two torsi of the two skeletons
-    two_bnb_sizes_of_torsi = []
-
-    # indices of torso points
-    torso_idxs = [1,2,5,8,9,12]
+    # two middle of spine points that is the middle point of
+    # two points (Neck-1 and MidHip-8)
+    two_middle_of_spine_points = []
+    # two lengths of spine of the two skeletons
+    two_spine_lengths = []
     
     for keypoint_set in keypoints_coordinates:
         # calculate its center and box size
@@ -703,29 +715,27 @@ def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True
         # add non-zero bounding boxe
         two_bnb_sizes.append(box_size)
         
-        # calculate torso center and box size
-        torso_Xs = [item for item in keypoint_set[torso_idxs, 0] if item > 0]
-        torso_Ys = [item for item in keypoint_set[torso_idxs, 1] if item > 0]
+        # calculate middle point and the lenght of spine
+        neck_point = keypoint_set[1,:]
+        midhip_point = keypoint_set[8,:]
 
-        # init values
-        torso_xMin, torso_xMax, torso_yMin, torso_yMax = 0,0,0,0
-        if len(torso_Xs) !=0 and len(torso_Ys)!=0:
-            torso_xMin = np.min(torso_Xs)
-            torso_xMax = np.max(torso_Xs)
-            torso_yMin = np.min(torso_Ys)
-            torso_yMax = np.max(torso_Ys)
+        middle_of_spine = (0.0, 0.0)
+        length_of_spine = 0.0
+        if np.all(neck_point) and np.all(midhip_point):
+            middle_of_spine = ((neck_point[0]+midhip_point[0])/2, (neck_point[1]+midhip_point[1])/2)
+            diff_neck_hip = (neck_point[0]-midhip_point[0], neck_point[1]-midhip_point[1])
+            length_of_spine = np.sqrt(diff_neck_hip[0]**2 + diff_neck_hip[1]**2)
 
-        torso_center = ((torso_xMax + torso_xMin)/2, (torso_yMax + torso_yMin)/2)
-        torso_box_size = (torso_xMax - torso_xMin, torso_yMax - torso_yMin)
-
-        two_mean_points_of_torsi.append(torso_center)
-        two_bnb_sizes_of_torsi.append(torso_box_size)
+        # save middle of spine coordinate and the length
+        # if not exists, all values = 0.0
+        two_middle_of_spine_points.append(middle_of_spine)
+        two_spine_lengths.append(length_of_spine)
 
         # zip normalized (x,y) coordinate
-        # translate to center of the torso if it has non-zero coordinate
-        if torso_mod:
-            if torso_center[0] != 0 and torso_center[1] != 0:
-                normalized_coordinates = np.array([(item[0],item[1]) if (item[0]==0 or item[1]==0) else ((item[0]-torso_center[0])/box_size[0],(item[1]-torso_center[1])/box_size[1]) for item in keypoint_set])
+        # translate to middle of spine if it has non-zero coordinate
+        if spine_based:
+            if middle_of_spine[0] != 0 and middle_of_spine[1] != 0:
+                normalized_coordinates = np.array([(item[0],item[1]) if (item[0]==0 or item[1]==0) else ((item[0]-middle_of_spine[0])/box_size[0],(item[1]-middle_of_spine[1])/box_size[1]) for item in keypoint_set])
             else:
                 normalized_coordinates = np.array([(item[0],item[1]) if (item[0]==0 or item[1]==0) else ((item[0]-center[0])/box_size[0],(item[1]-center[1])/box_size[1]) for item in keypoint_set])
         else:
@@ -751,23 +761,60 @@ def engineer_keypoint_based_feature_vector(keypoints_coordinates, torso_mod=True
         # Formula to calculate the distance:
         # dist = sqrt(((x2-x1)/(w1+w2))**2 + ((y2-y1)/(h1+h2))**2)
         dist = 0.0
-        torso_factor = 0.1
-        allpoint_factor = 1.0
-        if torso_mod:
-            # check if two mean points and two box sizes of the two torsi have only non-zero values
-            # if it is the case, calculate the distance between the two torsi
-            if (np.all(two_mean_points_of_torsi) and np.all(two_bnb_sizes_of_torsi)):
-                normalized_delta_X = (two_mean_points_of_torsi[0][0] - two_mean_points_of_torsi[1][0])/(two_bnb_sizes_of_torsi[0][0] +two_bnb_sizes_of_torsi[1][0])
-                normalized_delta_Y = (two_mean_points_of_torsi[0][1] - two_mean_points_of_torsi[1][1])/(two_bnb_sizes_of_torsi[0][1] +two_bnb_sizes_of_torsi[1][1])
-                dist = torso_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
-            else: # if not, calculate the distance between two all-keypoints-based bounding boxes
-                normalized_delta_X = (two_mean_points[0][0] - two_mean_points[1][0])/(two_bnb_sizes[0][0] +two_bnb_sizes[1][0])
-                normalized_delta_Y = (two_mean_points[0][1] - two_mean_points[1][1])/(two_bnb_sizes[0][1] +two_bnb_sizes[1][1])
-                dist = allpoint_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
+        spine_based_factor = 0.1
+        allpoint_factor = 0.33
+        if spine_based:
+            # check if two middle of spine points and the lengths have only non-zero values
+            # if it is the case, the distance = segment(midP1-midP2)/(length of spine of main actor)
+            # the first key-point set should be the main actor of the scene after merging process
+            if np.all(two_middle_of_spine_points) and np.all(two_spine_lengths):
+                diff_2midP = (two_middle_of_spine_points[0][0]-two_middle_of_spine_points[1][0],\
+                              two_middle_of_spine_points[0][1]-two_middle_of_spine_points[1][1])
+                dist_2midP = np.sqrt(diff_2midP[0]**2 + diff_2midP[1]**2)
+
+                dist = spine_based_factor*dist_2midP/two_spine_lengths[0]
+
+            # if middle of spines and the lengths are all zero, then
+            # calculate the distance as torso_mod=False, that means using mean points and bounding
+            # boxes of all key-points to calculate
+            elif not np.any(two_middle_of_spine_points) and not np.any(two_spine_lengths):
+                # the distance will be calculated as the following:
+                # dist = (distance between two mean points)/(the biggest value from all box size values)
+                #      = segment(meanP1-meanP2)/ max(w1,h1,w2,h2)
+                diff_2meanP = (
+                two_mean_points[0][0] - two_mean_points[1][0], two_mean_points[0][1] - two_mean_points[1][1])
+                dist_2meanP = np.sqrt(diff_2meanP[0] ** 2 + diff_2meanP[1] ** 2)
+                max_box_size_value = np.max(two_bnb_sizes)
+
+                dist = allpoint_factor * dist_2meanP / max_box_size_value
+
+            # if only one middle-of-spine point and one length are non-zero
+            # then, the distance will be calculated as the distance from the non-zero
+            # middle-of-spine point to the mean point of the remaining set, and scaled by
+            # the non-zero length of spine
+            else:
+                # find index of non-zero middle-of-spine point and length values
+                # init default value
+                spine_based_index = 0
+                mean_based_index = 1
+                if two_spine_lengths[0] == 0:
+                    spine_based_index = 1
+                    mean_based_index = 0
+
+                # distance from middle-of-spine point to the mean point
+                diff_mid2mean = (two_middle_of_spine_points[spine_based_index][0]- two_mean_points[mean_based_index][0], two_middle_of_spine_points[spine_based_index][1]- two_mean_points[mean_based_index][1])
+                dist_mid2mean = np.sqrt(diff_mid2mean[0]**2 + diff_mid2mean[1]**2)
+
+                dist = spine_based_factor*dist_mid2mean/two_spine_lengths[spine_based_index]
+
         else:
-            normalized_delta_X = (two_mean_points[0][0] - two_mean_points[1][0])/(two_bnb_sizes[0][0] +two_bnb_sizes[1][0])
-            normalized_delta_Y = (two_mean_points[0][1] - two_mean_points[1][1])/(two_bnb_sizes[0][1] +two_bnb_sizes[1][1])
-            dist = allpoint_factor*np.sqrt(normalized_delta_X**2 + normalized_delta_Y**2)
+            # the distance will be calculated as the following:
+            # dist = (distance between two mean points)/(the biggest value from all box size values)
+            #      = segment(meanP1-meanP2)/ max(w1,h1,w2,h2)
+            diff_2meanP = (two_mean_points[0][0]-two_mean_points[1][0], two_mean_points[0][1]-two_mean_points[1][1])
+            dist_2meanP = np.sqrt(diff_2meanP[0]**2 + diff_2meanP[1]**2)
+            max_box_size_value = np.max(two_bnb_sizes)
+            dist = allpoint_factor*dist_2meanP/max_box_size_value
             
         list_of_translated_scaled_keypoints += [dist]
 
@@ -914,8 +961,7 @@ def extract_dataset_features(dataset,
 
                         # after merging with new keypoints sets, (these coordinates are translated to their centers
                         # and scaled by their box sizes) + (distance between two skeletons) -> added in feature vectors
-                        keypoint_based_feats_vector = engineer_keypoint_based_feature_vector(keypoints_coordinates,
-                                                                                             torso_mod=True)
+                        keypoint_based_feats_vector = engineer_keypoint_based_feature_vector(keypoints_coordinates)
 
                         # add to list of keypoint-only features
                         kp_record_details.append(keypoint_based_feats_vector)
@@ -977,4 +1023,4 @@ if __name__ == "__main__":
                             isWithExtraFeature=False)
 
     # extract_dataset_features("experiments/testing/",
-    #                           isWithExtraFeature=False)
+                              # isWithExtraFeature=False)

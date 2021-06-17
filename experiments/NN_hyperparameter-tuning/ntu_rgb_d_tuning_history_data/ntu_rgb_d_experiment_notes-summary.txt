@@ -1,0 +1,15 @@
+This experiment was conducted with
+the following search space:
+
+activation_fn = ('relu', 'sigmoid')
+learning rate (-3, -2, 2) + (-3.5, -3.5, 1)
+first_neurons = (400, 700, 100)
+
+# additional params
+attempt = 1
+epochs = 200
+
+===========================================
+detailed_tuning_data shape=(2,3,4,1,200,4)
+summary_tuning_data shape=(2,3,4,4)
+===========================================

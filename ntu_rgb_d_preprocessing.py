@@ -81,8 +81,8 @@ def remove_noisy_mistaken_objects():
 
 def remove_slow_motion_bodys():
     #
-    # remove slow-motion bodys, and
-    # keep only two highest-motion bodys
+    # remove slow-motion bodys, and keep only two highest-motion bodys
+    # the main actor will be at index of 0
     #
     total_ignore_files = 0
     for name in npy_file_names:

@@ -5,7 +5,7 @@ import sys
 from sys import platform
 import cv2
 import argparse
-from collections import Counter
+import datetime
 
 import pandas as pd
 from pandas import DataFrame
@@ -17,112 +17,128 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
-from keras.utils import np_utils
 from keras.optimizers import Adam
+from sklearn import __version__
 from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split, ShuffleSplit
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 from sklearn import svm, metrics
 from joblib import dump, load
-import pickle
 
 from humiact5_plot_learning_curve import plot_learning_curve
 from humiact5_preprocessing import get_all_images_recursively
-from humiact5_feature_extraction import extract_ROI_and_HOG_feature, \
+from humiact5_feature_engineering import extract_ROI_and_HOG_feature, \
      keypoints_sets_merging, \
      engineer_keypoint_based_feature_vector,\
      draw_combined_bounding_box,\
      draw_separated_bounding_boxes
 
 #region train and test modules
-def baseline_model(input_dim):
+def baseline_model(input_dim, num_classes,
+                   neurons=(600,), af=('relu',), 
+                   lr=0.001):
     #
     # baseline model for classifying
     #
-    # manually tuning parameters
-    # [visible-dropout, hidden-nerons, hidden-dropout]:[train-accuracy,val-accuracy]
-    # good 01: [0.01, 5, 0.00]:[95.5, 91.3]
-    # good 02:
-    # good 03:
+    
+    # ===================================================================================================== #
+    # ===== Tuning hyper-parameters by kerastuner =========
+    # [optimal hyper-parameters obtained]:[model performance obtained using the optimal hyper-parameters]
+    # ===================================================================================================== #
+    #
+    
+    # STRUCTURE ATTEMPTS:
+    # 1. NN model with 1 densly hidden layer and 1 hidden dropout
+    # [units1=,lr=,af=]:[train-accuracy,val-accuracy]
+    # - [units1=600, lr=0.001,af='relu']: [,]
+
+    assert len(af) == len(neurons)
+    assert len(neurons) > 0
+    
     model = Sequential()
-    model.add(Dropout(0.2, input_shape=(input_dim,)))
-    model.add(Dense(128, activation="relu"))
-    model.add(Dropout(0.1))
-    model.add(Dense(6, activation="softmax"))
-    opt = Adam(learning_rate=0.0001)
+    # ============== Visible dropout case =============== #
+    # model.add(Dropout(0.3, input_shape=(input_dim,)))
+    # =================================================== #
+    
+    # === start 1st structure ===
+    # 1st densely hidden layer #
+    model.add(Dense(neurons[0], input_shape=(input_dim,), activation= af[0]))
+
+    # consecutive densely hidden layers if any #
+    for l in range(1, len(neurons)):
+        model.add(Dense(neurons[l], activation= af[l]))
+    
+    # === output layer with softmax ====
+    model.add(Dense(num_classes, activation="softmax"))
+    
+    # === learning rate ===
+    opt = Adam(learning_rate= lr)
 
     # compile model
-    model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
+    model.compile(loss="sparse_categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
+    
     return model
 
 # build 1 hidden NN classifier
-def build_and_save_NN_model():
+def build_and_save_NN_Classifier(epochs=250,batch_size=16, 
+                                 neurons=(600,),
+                                 af=('relu',),
+                                 lr=0.001):
     # load dataset
-    df_ds = pd.DataFrame()
-    for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_feature.csv"), index_col=0)
-        labels = [cat for i in range(len(df.index))]
-        df.insert(df.shape[1], "label", labels)
-        df_ds = df_ds.append(df)
-
-    # print(df_ds.shape)
-
-    # separate features and labels
-    X = df_ds.iloc[:, :-1]
-    y = df_ds.iloc[:, -1]
+    (X,y) = load_kp_feat_data_from_csv(train_dataset,dist_included=True)
 
     # apply scaler to each type of feature
     # trans = StandardScaler()
     # trans = MinMaxScaler()
     # X = trans.fit_transform(X)
 
-    # apply one-hot coding for label
-    encoder = LabelEncoder()
-    encoder.fit(y)
-    encoded_y = encoder.transform(y)
-
     # split train and test set
-    X_train, X_val, y_train, y_val = train_test_split(X, encoded_y, test_size=0.33, shuffle=True)
-
-    # convert integers to dummy variables (i.e. one hot encoded)
-    # for y_train and y_val
-    dummy_y_train = np_utils.to_categorical(y_train)
-    dummy_y_val = np_utils.to_categorical(y_val)
-
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.33, shuffle=True)
+    
+    # get input shape and number of output classes
     num_feats = X_train.shape[1]
+    num_cls = len(set(y))
+    
     # create baseline model without PCA
-    model = baseline_model(num_feats)
+    model = baseline_model(num_feats, num_cls,
+                           neurons=neurons, 
+                           af=af,
+                           lr=lr)
 
     # fit the model
-    history = model.fit(X_train, dummy_y_train,
-                        validation_data=(X_val, dummy_y_val),
-                        epochs=100,
-                        batch_size=16,
+    print ("Model is fitting...")
+    history = model.fit(X_train, y_train,
+                        validation_data=(X_val, y_val),
+                        epochs=epochs,
+                        batch_size=batch_size,
                         verbose=0
                         )
+    print ("Done!")
+
     # show confusion matrix for mis-classification on validation set
     y_pred_train = model.predict_classes(X_train)
     y_pred = model.predict_classes(X_val)
 
-    show_confusion_matrix(y_pred_train,y_train,"NN network/ Training set")
-    show_confusion_matrix(y_pred,y_val,"NN network/ Validation set")
+    show_confusion_matrix_and_save(y_pred_train, y_train, "NN network- Training set")
+    show_confusion_matrix_and_save(y_pred, y_val, "NN network- Validation set")
 
     # print last epoch accuracy
     # for training set and validation set
-    print("Last training accuracy: ")
-    print(history.history['accuracy'][len(history.history['accuracy'])-1])
-    print("Last validation accuracy: ")
-    print(history.history['val_accuracy'][len(history.history['val_accuracy'])-1])
+    print("Best training accuracy: ")
+    print(max(history.history['accuracy']))
+    print("Best validation accuracy: ")
+    print(max(history.history['val_accuracy']))
 
     # save the model
-    model.save("humiact5_saved_models/NN-model-with-keypfea")
+    model.save("humiact5_saved_models/NN-model(af={},lr={:.4f},neus={})".format(af,lr,first_neurons))
 
     # plot loss during training
     pyplot.title('Training / Validation Loss')
     pyplot.plot(history.history['loss'], label='train')
     pyplot.plot(history.history['val_loss'], label='val')
     pyplot.legend()
+    pyplot.grid()
     pyplot.show()
 
     # plot accuracy during training
@@ -130,67 +146,100 @@ def build_and_save_NN_model():
     pyplot.plot(history.history['accuracy'], label='train')
     pyplot.plot(history.history['val_accuracy'], label='val')
     pyplot.legend()
+    pyplot.grid()
     pyplot.show()
+    
+
 
 # build SVM classifier
-def build_and_save_SVM_Classifier():
-    # load dataset
-    df_ds = pd.DataFrame()
-    for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_feature.csv"), index_col=0)
-        labels = [cat for i in range(len(df.index))]
-        df.insert(df.shape[1], "label", labels)
-        df_ds = df_ds.append(df)
-
-    # print(df_ds.shape)
-
-    # separate features and labels
-    X = df_ds.iloc[:, :-1]
-    y = df_ds.iloc[:, -1]
+def build_and_save_SVM_Classifier(attempt= 10,save_stats=False):
+    #
+    # build SVM classifier and save the model to disk
+    # Input:
+    #   -attempt - number of times to train the model
+    #   (this is for statistical purpose)
+    #
+    # load dataset    
+    (X,y) = load_kp_feat_data_from_csv(train_dataset,dist_included=True)
 
     # # apply scaling to entire dataset
     # trans = StandardScaler()
     # trans = MinMaxScaler()
     # X = trans.fit_transform(X)
 
-    # apply one-hot coding for label
-    encoder = LabelEncoder()
-    encoder.fit(y)
-    encoded_y = encoder.transform(y)
+    # try "attempt" times training the model by re-splitting train/val set
+    # This is for statistical purpose
 
-    # save encoded classes
-    encoded_classes = list(encoder.classes_)
-    dump(encoded_classes, 'humiact5_saved_models/encoded-classes.joblib')
+    # declare the ndarray to save all performance details
+    # row = attempt
+    # col = 1st-col(train_acc)-2nd-col(val_acc)-3th-8th-col(full_train_prec)-9th-12th-col(full_val_prec)
+    performance_stats = np.array(np.zeros(shape=(attempt,12)))
 
-    # train test split
-    # split train and test set
-    X_train, X_val, y_train, y_val = train_test_split(X, encoded_y, test_size=0.33, shuffle=True)
+    for att in range(attempt):
+        # split train and test set
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.33, shuffle=True)
 
-    # create SVM classifier
-    clf = svm.SVC(kernel='rbf')
+        # create SVM classifier
+        clf = svm.SVC(kernel='rbf')
 
-    # cross validation
-    cv = ShuffleSplit(n_splits=5, test_size=0.2, random_state=0)
-    # plot_learning_curve(clf, 'Learning curve for humiact model', X, y, ylim=(0.4, 1.01),
-    #                     cv=cv, n_jobs=4)
+        print ("Sklearn vesion: {}".format(__version__))
 
-    clf.fit(X_train,y_train)
+        # cross validation
+        cv = ShuffleSplit(n_splits=5, test_size=0.2, random_state=0)
+        # plot_learning_curve(clf, 'Learning curve for humiact model', X, y, ylim=(0.4, 1.01),
+        #                     cv=cv, n_jobs=4)
 
-    # dump classifier to file
-    dump(clf, 'humiact5_saved_models/SVM-model-with-keypfea.joblib')
+        clf.fit(X_train,y_train)
 
-    # predict the response
-    y_pred_train = clf.predict(X_train)
-    y_pred = clf.predict(X_val)
+        # dump classifier to file
+        dump(clf, 'humiact5_saved_models/SVM-model-with-keypfea(attempt={}).joblib'.format(att))
 
-    # show confusion matrix for mis-classification on training set
-    show_confusion_matrix(y_pred_train, y_train, "SVM/ Training set")
-    # show confusion matrix for mis-classification on validation set
-    show_confusion_matrix(y_pred, y_val,"SVM/ Validation set")
+        # predict the response
+        y_pred_train = clf.predict(X_train)
+        y_pred_val = clf.predict(X_val)
 
-    # Model Accuracy: how often is the classifier correct?
-    print("Training accuracy:", metrics.accuracy_score(y_train, y_pred_train))
-    print("Validation accuracy:", metrics.accuracy_score(y_val, y_pred))
+        # ================================================================== #
+        # ============= Save trained classifier performance ================ #
+        # overall accuracy on training set and test set
+        train_acc = metrics.accuracy_score(y_train, y_pred_train)
+        val_acc = metrics.accuracy_score(y_val, y_pred_val)
+
+        # accuracy of the classifier on each class of action
+        # 5 classes in total: 0:Boxing,1:Facing,2:HHold,3:HShake,4:XOXO
+        # on training set, precision calculation
+        full_train_prec = [sum(np.logical_and(y_train == cls, y_pred_train == cls)) / sum(y_pred_train == cls) for cls in range(5)]
+        # on validation set, precision calculation
+        full_val_prec = [sum(np.logical_and(y_val == cls, y_pred_val == cls)) / sum(y_pred_val == cls) for cls in
+                        range(5)]
+
+        # accumulate the result to array and save to file (for statistical purpose)
+        performance_stats[att,:] = np.concatenate([[train_acc,val_acc], full_train_prec, full_val_prec])
+
+        # print out details
+        # model overall accuracy: how often does the classifier predict correctly?
+        print("Training accuracy:", train_acc)
+        print("Validation accuracy:", val_acc)
+
+        # details for each class of action
+        print ("Precision details on training set ({}):\n{}".format(att+1, full_train_prec))
+        print ("Precision details on validation set ({}):\n{}".format(att+1, full_val_prec))
+
+        # ================================================================== #
+
+        # show confusion matrix for mis-classification on training set
+        show_confusion_matrix_and_save(y_pred_train, y_train, "SVM- Training set ({})".format(att+1),save=save_stats)
+        # show confusion matrix for mis-classification on validation set
+        show_confusion_matrix_and_save(y_pred_val, y_val, "SVM- Validation set ({})".format(att+1),save=save_stats)
+
+    if save_stats:
+        # save stats data to excel file
+        cols = ["Train", "Val", "Train_Boxing", "Train_Facing", "Train_HHold", "Train_HShake", "Train_XOXO",
+                "Val_Boxing", "Val_Facing", "Val_HHold", "Val_HShake", "Val_XOXO"]
+        df = pd.DataFrame(performance_stats, columns=cols)
+
+        filename = "experiments/SVM_humiact5_kp_feat_output/performance_stats_{}.xlsx".format(
+            datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+        df.to_excel(filename)
 
 def print_out_misclassified_samples(encoded_ground_truth, encoded_predicted, y_ground_truth, y_predicted):
     #
@@ -219,60 +268,82 @@ def print_out_misclassified_samples(encoded_ground_truth, encoded_predicted, y_g
 
     pass
 
-def evaluate_NN_Classifier_On_Test_Set(test_dataset):
-    #
-    # try to predict some input images with/without yoga poses
-    #
-    pass
-
-def evaluate_SVM_Classifier_On_Test_Set():
+def evaluate_NN_Classifier_On_Test_Set(neurons=(600,), 
+                                       af=('relu',),
+                                       lr=0.001):
     #
     # evaluate the accuracy of the model in test set
     #
 
-    # load dataset
-    df_ds = pd.DataFrame()
-    for cat in categories:
-        df = pd.read_csv(join(test_dataset, cat, cat + "_keypoint_feature.csv"), index_col=0)
-        labels = [cat for i in range(len(df.index))]
-        df.insert(df.shape[1], "label", labels)
-        df_ds = df_ds.append(df)
-
-    # separate features and labels
-    X = df_ds.iloc[:, :-1]
-    y = df_ds.iloc[:, -1]
+    # load dataset    
+    (X,y) = load_kp_feat_data_from_csv(test_dataset,dist_included=True)
 
     # # apply scaling to entire dataset
     # trans = StandardScaler()
     # trans = MinMaxScaler()
     # X = trans.fit_transform(X)
 
-    # apply one-hot coding for label
-    encoder = LabelEncoder()
-    encoder.fit(y)
-    encoded_y = encoder.transform(y)
+    # load NN classifier
+    model = keras.models.load_model("humiact5_saved_models/NN-model(neus={},af={},lr={:.4f})"\
+                                    .format(neurons, af, lr))
+
+    # predict
+    y_pred = model.predict_classes(X)
+
+    # diagnose misclassified samples
+    # 0:Boxing, 1:Facing, 2:HHold, 3:HShake, 4:XOXO
+    # print_out_misclassified_samples(3, 1, y, y_pred)
+
+    # show confusion matrix for mis-classification on validation set
+    show_confusion_matrix_and_save(y_pred, y, "Misclassification on Test set, Neural Network")
+
+    # Model Accuracy: how often is the classifier correct?
+    print("Test accuracy:", metrics.accuracy_score(y, y_pred))
+    
+
+def evaluate_SVM_Classifier_On_Test_Set(att=0, save_stats=True):
+    #
+    # evaluate the accuracy of the model in test set
+    #
+
+    # load dataset    
+    (X,y) = load_kp_feat_data_from_csv(test_dataset,dist_included=True)
+
+    # # apply scaling to entire dataset
+    # trans = StandardScaler()
+    # trans = MinMaxScaler()
+    # X = trans.fit_transform(X)
 
     # load SVM classifier without PCA
-    clf = load('humiact5_saved_models/SVM-model-with-keypfea.joblib')
+    clf = load('humiact5_saved_models/SVM-model-with-keypfea(attempt={}).joblib'.format(att+1))
 
     # predict
     y_pred = clf.predict(X)
 
     # diagnose misclassified samples
     # 0:Boxing, 1:Facing, 2:HHold, 3:HShake, 4:XOXO
-    print_out_misclassified_samples(3, 1, encoded_y, y_pred)
+    print_out_misclassified_samples(3, 1, y, y_pred)
 
     # show confusion matrix for mis-classification on validation set
-    show_confusion_matrix(y_pred, encoded_y,"SVM/ Test set")
+    
+    show_confusion_matrix_and_save(y_pred, y, "SVM- Test set ({})".format(att+1), save= save_stats)
+
+    test_acc = metrics.accuracy_score(y, y_pred)
 
     # Model Accuracy: how often is the classifier correct?
-    print("Test accuracy:", metrics.accuracy_score(encoded_y, y_pred))
+    print("Test accuracy:", test_acc)
 
-def show_confusion_matrix(y_pred, y_actual,title):
+    # save test accuracy to txt file
+    file_name = "experiments/SVM_humiact5_kp_feat_output/test_accuracy.txt"
+
+    with open(file_name, "a") as f:
+        f.write("attempt={}: test_acc= {}\n".format(att, test_acc))
+
+def show_confusion_matrix_and_save(y_pred, y_actual, title, save=False):
     #
     # show confusion matrix for mis-classification on validation set
     #
-    confusion = confusion_matrix(y_actual, y_pred, normalize='true');
+    confusion = confusion_matrix(y_actual, y_pred, normalize='pred');
     # print(confusion)
 
     df_cm = DataFrame(confusion, index=categories, columns=categories)
@@ -284,59 +355,9 @@ def show_confusion_matrix(y_pred, y_actual,title):
     ax.set_title(title)
     pyplot.show()
 
-def build_confusion_matrix(isSVM=True):
-    #
-    # build confusion matrix for mis-classification in train-val dataset
-    #
+    if save:
+        fig.savefig("experiments/SVM_humiact5_kp_feat_output/{}.jpg".format(title))
 
-    # load dataset
-    df_ds = pd.DataFrame()
-    for cat in categories:
-        df = pd.read_csv(join(train_dataset, cat, cat + "_keypoint_feature.csv"), index_col=0)
-        labels = [cat for i in range(len(df.index))]
-        df.insert(df.shape[1], "label", labels)
-        df_ds = df_ds.append(df)
-
-    # print(df_ds.shape)
-
-    # separate features and labels
-    X = df_ds.iloc[:, :-1]
-    y = df_ds.iloc[:, -1]
-
-    # apply scaling to entire dataset
-    # trans = StandardScaler()
-    # trans = MinMaxScaler()
-    # X = trans.fit_transform(X)
-
-    # apply one-hot coding for label
-    encoder = LabelEncoder()
-    encoder.fit(y)
-    encoded_y = encoder.transform(y)
-
-    y_preds = []
-    if isSVM:
-        # load SVM classifier without PCA
-        clf = load('humiact5_saved_models/SVM-model-with-keypfea.joblib')
-        # predict poses
-        y_preds = clf.predict(X)
-    else:
-        # load the saved model
-        model = keras.models.load_model("humiact5_saved_models/NN-model-with-keypfea")
-        y_preds = model.predict_classes(X)
-
-    # Model Accuracy: how often is the classifier correct?
-    print("Accuracy on train dataset (included both train and validation samples):",
-          metrics.accuracy_score(encoded_y, y_preds))
-
-    confusion = confusion_matrix(encoded_y, y_preds, normalize='true');
-    # print(confusion)
-
-    df_cm = DataFrame(confusion, index=categories, columns=categories)
-
-    ax = sn.heatmap(df_cm, cmap='Oranges', annot=True)
-    ax.set_ylabel('True')
-    ax.set_xlabel('Predicted')
-    pyplot.show()
 
 def visualize_SVM_Classifier(test_images_path):
     #
@@ -503,6 +524,45 @@ def visualize_SVM_Classifier(test_images_path):
 
         pyplot.show()
 
+
+def load_kp_feat_data_from_csv(dataset, dist_included=False):
+    #
+    # load keypoint feature data from csv files, split feature columns from label columns
+    # Input:
+    #   -dataset -path to the data set (train, or test)
+    #   -dist_included -indicate whether or not distance dimension included
+    # Ouput:
+    #   -(X,y) -dataframe of feature data and label data 
+    #
+    df_ds = pd.DataFrame()
+    for cat in categories:
+        df = pd.read_csv(join(dataset, cat, cat + "_keypoint_feature.csv"), index_col=0)
+        labels = [cat for i in range(len(df.index))]
+        df.insert(df.shape[1], "label", labels)
+        df_ds = df_ds.append(df)
+
+    # print(df_ds.shape)
+
+    # separate features and labels
+    if dist_included:
+        X = df_ds.iloc[:, :-1]
+    else:
+        X = df_ds.iloc[:, :-2]
+    
+    y = df_ds.iloc[:, -1]
+    
+    # encode the labels
+    encoder = LabelEncoder()
+    encoder.fit(y)
+    y = encoder.transform(y)
+
+    # save encoded classes if not exists
+    if not os.path.exists(join(dir_path, 'humiact5_saved_models/encoded-classes.joblib')):
+        encoded_classes = list(encoder.classes_)
+        dump(encoded_classes, 'humiact5_saved_models/encoded-classes.joblib')
+    
+    return (X,y)
+
 #endregion
 
 #region main function
@@ -513,20 +573,37 @@ if __name__ == "__main__":
     categories = ["Boxing", "Facing", "HHold", "HShake", "XOXO"]
     train_dataset = join(dir_path, 'dataset-humiact5', 'train')
     test_dataset = join(dir_path, 'dataset-humiact5', 'test')
-
-    # # build the NN model
-    # build_and_save_NN_model()
-
+    
+    # ================================================================================ #
+    # ========================= SVM-based model ====================================== #
+    # ================================================================================ #
+    
     # build SVM classifier
-    # build_and_save_SVM_Classifier()
+    # 10 attempts to train the model (for statistical purpose)
+    # build_and_save_SVM_Classifier(attempt=10, save_stats=False)
+    
+    # evaluate SVM classifier accuracy in test set
+    for att in range(10):
+        evaluate_SVM_Classifier_On_Test_Set(att=att,save_stats=True)
+    
+    # ================================================================================ #
+    
+    # ================================================================================ #
+    # ========================== NN-based model ====================================== #
+    # ================================================================================ #
 
-    # evaluate accuracy in test set
-    evaluate_SVM_Classifier_On_Test_Set()
+    # build NN classifier
+    # build_and_save_NN_Classifier()
+    
+    # evaluate NN classifier accuracy in test set
+    # evaluate_NN_Classifier_On_Test_Set()
+    
+    # ================================================================================ #
 
-    # # calculate confusion matrix
-    # build_confusion_matrix(isSVM=False)
-
-    # classify some input images
-    # and print out predicted results in grid
+    # ================================================================================ #
+    # =========================== Visualization ====================================== #
+    # ================================================================================ #
     # visualize_SVM_Classifier("dataset-humiact5/test/HShake/")
+    # ================================================================================ #
+
 #endregion

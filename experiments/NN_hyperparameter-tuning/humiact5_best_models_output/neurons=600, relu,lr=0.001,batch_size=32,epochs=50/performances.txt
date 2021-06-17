@@ -1,0 +1,9 @@
+Neural Network (relu,lr=0.001,batch_size=32,epochs=50)
+
+Best training accuracy: 
+0.9986140131950378
+Best validation accuracy: 
+0.8565400838851929
+
+=================================
+Test accuracy: 0.8262476894639557

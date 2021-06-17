@@ -1,0 +1,3 @@
+setting=cs,skips=8: test_acc= 0.40105718001426355
+setting=cs,skips=4: test_acc= 0.4249712257816996
+setting=cs,skips=2: test_acc= 0.4425507719671677
