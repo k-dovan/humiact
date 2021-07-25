@@ -35,7 +35,7 @@ try:
 
     # Flags
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_path", default="media/test/00000179.jpg",
+    parser.add_argument("--image_path", default="media/test/kising (340).jpg",
                         help="Process an image. Read all standard formats (jpg, png, bmp, etc.).")
     args = parser.parse_known_args()
 

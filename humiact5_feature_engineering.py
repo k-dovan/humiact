@@ -444,14 +444,14 @@ def keypoints_sets_merging(poseKeypoints,
     arr_of_keypoints_output = np.array(list_of_sets_of_keypoints_output)
 
     # replace unconfident points from big sets
-    # arr_of_keypoints_output = replace_unconfident_points_in_big_set_by_more_confident_small_sets(
-                                                             # poseKeypoints= arr_of_keypoints_output,
-                                                             # small_set_points_thresh= 4,
-                                                             # lse_thresh= 1.5,
-                                                             # confidence_thresh= 0.5,
-                                                             # unconfidence_thresh= 0.2,
-                                                             # removed_set_points_thresh= 3
-                                                        # )
+    arr_of_keypoints_output = replace_unconfident_points_in_big_set_by_more_confident_small_sets(
+                                                             poseKeypoints= arr_of_keypoints_output,
+                                                             small_set_points_thresh= 4,
+                                                             lse_thresh= 1.5,
+                                                             confidence_thresh= 0.5,
+                                                             unconfidence_thresh= 0.2,
+                                                             removed_set_points_thresh= 3
+                                                        )
 
     # print out the result
     # print ("The list of %d merged sets of keypoints:\n" % len(arr_of_keypoints_output))
@@ -574,13 +574,23 @@ def get_two_sets_with_biggest_variance(keypoints_arrs):
     # calculate a tupple ((index1,variance of the set calculated by F1_score formula),...) from the arrays
     index_value_pairs = ()
     for i in range(n):
-        # calculate the std of current set
-        (_, stdXY) = calc_means_stds_of_keypoints_set(keypoints_arrs[i])
-        # std = np.sqrt(stdXY[0]**2 + stdXY[1]**2)
+        # (_, stdXY) = calc_means_stds_of_keypoints_set(keypoints_arrs[i])
 
-        # calculate scalar std using F1_score formula
-        std_F1 = stdXY[0]*stdXY[1]/(stdXY[0]+stdXY[1])
-        index_value_pairs += (i, std_F1),
+        # calculate the score of current set
+        # score = np.sqrt(stdXY[0]**2 + stdXY[1]**2)
+        # index_value_pairs += (i, score),
+
+        # calculate score using F1_score formula
+        # score = stdXY[0]*stdXY[1]/(stdXY[0]+stdXY[1])
+        # index_value_pairs += (i, score),
+
+        # calculate score using area formula
+        Xs = [item for item in keypoints_arrs[i][:, 0] if item > 0]
+        Ys = [item for item in keypoints_arrs[i][:, 1] if item > 0]
+        width = np.max(Xs) - np.min(Xs)
+        hight = np.max(Ys) - np.min(Ys)
+        score = width*hight
+        index_value_pairs += (i, score),
 
     # sort this tuple by variance
     sorted_index_value_pairs = sorted(index_value_pairs,key=lambda x:x[1],reverse=True)
@@ -1019,7 +1029,7 @@ if __name__ == "__main__":
     print("Starting features_extraction.py as entry point....")
     dir_path = os.path.dirname(os.path.abspath(__file__))
 
-    extract_dataset_features("dataset-humiact5/test/",
+    extract_dataset_features("experiments/testing/",
                             isWithExtraFeature=False)
 
     # extract_dataset_features("experiments/testing/",
