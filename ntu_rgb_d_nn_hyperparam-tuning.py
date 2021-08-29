@@ -1,3 +1,7 @@
+# ======================================================= #
+# Copyrights @vankhanhdo 2021
+# ======================================================= #
+
 import os
 from os.path import join
 
@@ -262,35 +266,47 @@ def train_NN_Classifier_with_specific_hyperparams(model, setting='cs', skips=2):
     pyplot.grid()
     pyplot.show()
 
-def create_one_densely_hidden_layer_nn_model(input_dim, num_classes,
-                                              activation_fn= 'relu',
-                                              learning_rate= 1e-3,
-                                              first_neurs= 100
-                                              ):
+
+# region train and test modules
+def baseline_model(input_dim, num_classes,
+                   neurons=(600,), af=('relu',),
+                   lr=0.001):
     #
-    # create a neural network model with only one densely hidden layer
-    #
-    # Input:
-    #   -input_dim -length of feature vector
-    #   -num_classes -number of classes
-    #   -activation_fn -activation function used
-    #   -learning_rate -learning rate chosen to train the model
-    #   -first_neurs -number of neurons in the first densely hidden layer
-    # Output:
-    #   -model -the built model ready for training
+    # baseline model for classifying
     #
 
+    # ===================================================================================================== #
+    # ===== Tuning hyper-parameters by kerastuner =========
+    # [optimal hyper-parameters obtained]:[model performance obtained using the optimal hyper-parameters]
+    # ===================================================================================================== #
+    #
+
+    # STRUCTURE ATTEMPTS:
+    # 1. NN model with 1 densly hidden layer and 1 hidden dropout
+    # [units1=,lr=,af=]:[train-accuracy,val-accuracy]
+    # - [units1=600, lr=0.001,af='relu']: [,]
+
+    assert len(af) == len(neurons)
+    assert len(neurons) > 0
+
     model = Sequential()
+    # ============== Visible dropout case =============== #
+    # model.add(Dropout(0.3, input_shape=(input_dim,)))
+    # =================================================== #
 
     # === start 1st structure ===
     # 1st densely hidden layer #
-    model.add(Dense(first_neurs, input_shape=(input_dim,), activation=activation_fn))
+    model.add(Dense(neurons[0], input_shape=(input_dim,), activation=af[0]))
+
+    # consecutive densely hidden layers if any #
+    for l in range(1, len(neurons)):
+        model.add(Dense(neurons[l], activation=af[l]))
 
     # === output layer with softmax ====
     model.add(Dense(num_classes, activation="softmax"))
 
     # === learning rate ===
-    opt = Adam(learning_rate=learning_rate)
+    opt = Adam(learning_rate=lr)
 
     # compile model
     model.compile(loss="sparse_categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
@@ -364,11 +380,11 @@ def do_hyperparam_tuning_in_small_search_space(setting='cs',
 
                     # init a neural network
                     # create a NN model with current hyper-parameters
-                    model = create_one_densely_hidden_layer_nn_model(num_feats, num_cls,
-                                                                     activation_fn[af],
-                                                                     learning_rate[lr],
-                                                                     first_neurons[neur]
-                                                                    )
+                    model = baseline_model(num_feats, num_cls,
+                                           neurons=(first_neurons[neur],),
+                                           af=(activation_fn[af],),
+                                           lr=learning_rate[lr]
+                                           )
                     # fit the model
                     print ("\n=============================================================================")
                     print ("NN model (af={},lr={},neurons={},attempt={}) is fitting...".format(activation_fn[af],

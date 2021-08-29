@@ -1,5 +1,6 @@
 
 # ======================================================= #
+# Copyrights @vankhanhdo 2021
 #
 # Feature engineering for NTU-RGB-D dataset
 #   - Compute feature vectors for each .npy file

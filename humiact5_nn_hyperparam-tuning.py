@@ -1,3 +1,7 @@
+# ======================================================= #
+# Copyrights @vankhanhdo 2021
+# ======================================================= #
+
 import os
 from os.path import join
 
@@ -217,7 +221,7 @@ def train_NN_Classifier_with_specific_hyperparams(optimal_model):
 
     history = model.fit(X_train, y_train,
                         validation_data=(X_val, y_val),
-                        epochs=500,
+                        epochs=50,
                         batch_size=16,
                         verbose=1
                         )
@@ -402,9 +406,9 @@ def do_hyperparam_tuning_in_small_search_space(activation_fn= ('relu', 'sigmoid'
 
     pass
 
-def plot_hyperparam_configuration_summary_performance(activation_fn,
-                                                      learning_rate,
-                                                      first_neurons,
+def plot_hyperparam_configuration_summary_performance(activation_fn= ('relu','sigmoid'),
+                                                      learning_rate= (-5, -2, 4),
+                                                      first_neurons= (100, 500, 100),
                                                       metric='val_accuarcy'):
     #
     # build performance chart based on summary tuning data

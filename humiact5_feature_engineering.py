@@ -1,3 +1,7 @@
+# ======================================================= #
+# Copyrights @vankhanhdo 2021
+# ======================================================= #
+
 import sys
 from sys import platform
 import os
@@ -461,11 +465,11 @@ def keypoints_sets_merging(poseKeypoints,
 
 # replace unconfident points by more confident ones in remaining small sets after merging
 def replace_unconfident_points_in_big_set_by_more_confident_small_sets(poseKeypoints,
-                                              small_set_points_thresh,
-                                              lse_thresh,
-                                              confidence_thresh,
-                                              unconfidence_thresh,
-                                              removed_set_points_thresh
+                                              small_set_points_thresh= 4,
+                                              lse_thresh= 1.5,
+                                              confidence_thresh= 0.5,
+                                              unconfidence_thresh= 0.2,
+                                              removed_set_points_thresh= 3
                                               ):
     #
     # remove duplicated small sets of pose key points
@@ -666,7 +670,7 @@ def extract_relative_dist_orient_between_two_sets(keypoints_coordinates):
 
 def engineer_keypoint_based_feature_vector(keypoints_coordinates, spine_based=True):
     #
-    # Each keypoint set will be translated to its centers and scaled by bounding box sizes.
+    # Each keypoint set will be translated to its middle-of-spine point and scaled by spine length.
     # Before doing the above translation and scaling, the distance between the two set is calculated,
     # and then the distance will be appended to the flatted feature vector.
     # Thus the length of the feature vector is (100+1)=101
@@ -842,7 +846,7 @@ def extract_dataset_features(dataset,
 
     try:
         # region initialization for OpenPose to run
-        # code from OpenPose library tutorial
+        # This boilerplate code is adapted from OpenPose library tutorial
 
         # Import Openpose (Windows/Ubuntu/OSX)
         dir_path = os.path.dirname(os.path.abspath(__file__))

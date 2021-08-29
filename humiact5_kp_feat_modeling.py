@@ -1,3 +1,7 @@
+# ======================================================= #
+# Copyrights @vankhanhdo 2021
+# ======================================================= #
+
 import os
 from os import listdir
 from os.path import join, isfile
@@ -234,7 +238,7 @@ def build_and_save_SVM_Classifier(attempt= 10,save_stats=False):
     if save_stats:
         # save stats data to excel file
         cols = ["Train", "Val", "Train_Boxing", "Train_Facing", "Train_HHold", "Train_HShake", "Train_XOXO",
-                "Val_Boxing", "Val_Facing", "Val_HHold", "Val_HShake", "Val_XOXO"]
+                "Test_Boxing", "Test_Facing", "Test_HHold", "Test_HShake", "Test_XOXO"]
         df = pd.DataFrame(performance_stats, columns=cols)
 
         filename = "experiments/SVM_humiact5_kp_feat_output/performance_stats_{}.xlsx".format(

@@ -1,4 +1,6 @@
 # ============================================================================ #
+# Copyrights @vankhanhdo 2021
+#
 # This file is to pre-process humiact5 dataset:
 #   - reducing high resolution images
 #   - cleaning the dataset which is to remove images whose key-joints

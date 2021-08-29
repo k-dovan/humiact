@@ -1,5 +1,6 @@
 
 # ======================================================= #
+# Copyrights @vankhanhdo 2021
 #
 # Preprocessing NTU-RGB-D dataset
 #   - remove noisy skeletons with aspect ration greater than 0.85
